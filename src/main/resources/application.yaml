@@ -13,3 +13,30 @@ spring:
 
 server:
   port: 9090
+
+# 冒烟/实跑需在环境变量提供 DEEPSEEK_API_KEY、ZHIPU_API_KEY（IDEA 运行配置透传）。
+# 占位符带 ": " 默认空串：本地无 key 也能启动，只有真正调用时才会 401。
+zhixing:
+  llm:
+    providers:
+      deepseek:
+        base-url: https://api.deepseek.com
+        api-key: ${DEEPSEEK_API_KEY:}
+        chat-model: deepseek-chat
+      zhipu:
+        base-url: https://open.bigmodel.cn/api/paas/v4
+        api-key: ${ZHIPU_API_KEY:}
+        chat-model: glm-4-flash             # 备选/辅助调用（免费档）；模型名以智谱控制台为准
+        embedding-model: embedding-3        # dimensions 入参可选 256~2048
+    chat:
+      primary: deepseek/deepseek-chat       # 主力
+      fallback: zhipu/glm-4-flash           # 一主一备、跨供应商降级（阶段 4 容错，阶段 1 只用 primary）
+      timeout-ms: 60000
+      first-token-timeout-ms: 15000         # 阶段 4 降级用，先配置好
+    embedding:
+      provider: zhipu
+      dimensions: 1024                      # 必须与 DDL vector(1024) 一致，入库后不可改
+      batch-size: 16                        # 保守值；客户端超限自动分片
+    rerank:
+      provider: noop                        # 智谱暂无公开 rerank 端点：NoopClient 截断直通
+      enabled: false                        # 接口保留；日后接硅基流动/Jina 只需加 provider 与配置
