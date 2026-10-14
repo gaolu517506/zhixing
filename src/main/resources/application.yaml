@@ -1,0 +1,15 @@
+spring:
+  application:
+    name: zhixing
+  datasource:
+    url: jdbc:postgresql://127.0.0.1:5432/zhixing
+    username: postgres
+    password: postgres
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      pool-name: ZhixingHikariPool
+
+server:
+  port: 9090
