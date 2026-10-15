@@ -5,7 +5,6 @@ import com.zhixing.common.BusinessException;
 import com.zhixing.dao.entity.KbChunk;
 import com.zhixing.dao.entity.KbDocument;
 import com.zhixing.dao.entity.KbKnowledgeBase;
-import com.zhixing.dao.mapper.KbChunkMapper;
 import com.zhixing.dao.mapper.KbDocumentMapper;
 import com.zhixing.dao.mapper.KbKnowledgeBaseMapper;
 import com.zhixing.infra.llm.EmbeddingClient;
@@ -23,7 +22,7 @@ import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executor;
 
 /**
  * 入库编排：parse → chunk → embed → write，异步执行、逐步落库状态。
@@ -43,7 +42,7 @@ public class IngestionPipeline {
     /** 首次 + 重试 2 次 */
     private static final int EMBED_MAX_ATTEMPTS = 3;
 
-    private final ExecutorService ingestPool;
+    private final Executor ingestPool;
     private final FileStorage fileStorage;
     private final DocumentParser documentParser;
     private final Chunker chunker;
@@ -52,7 +51,7 @@ public class IngestionPipeline {
     private final KbDocumentMapper docMapper;
     private final KbService kbService;
 
-    public IngestionPipeline(@Qualifier("ingest-pool") ExecutorService ingestPool,
+    public IngestionPipeline(@Qualifier("ingest-pool") Executor ingestPool,
                              FileStorage fileStorage,
                              DocumentParser documentParser,
                              Chunker chunker,
