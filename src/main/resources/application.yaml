@@ -10,6 +10,10 @@ spring:
       maximum-pool-size: 10
       minimum-idle: 2
       pool-name: ZhixingHikariPool
+  servlet:
+    multipart:
+      max-file-size: 50MB       # 入库线上传上限（详设-阶段1 §7）
+      max-request-size: 50MB
 
 server:
   port: 9090
@@ -40,3 +44,8 @@ zhixing:
     rerank:
       provider: noop                        # 智谱暂无公开 rerank 端点：NoopClient 截断直通
       enabled: false                        # 接口保留；日后接硅基流动/Jina 只需加 provider 与配置
+  storage:
+    local-root: data/files                  # 本地磁盘存储根目录，落盘 {root}/{docId}/{文件名}
+  ingest:
+    pool-core: 2                            # 入库异步线程池（有界队列 64 + CallerRuns 背压）
+    pool-max: 4
