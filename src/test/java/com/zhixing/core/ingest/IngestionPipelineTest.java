@@ -35,6 +35,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -108,7 +109,7 @@ class IngestionPipelineTest {
             }
         };
         pipeline = new IngestionPipeline(Runnable::run, storage, parser, new FixedSizeChunker(),
-                embeddingClient, kbMapper, docMapper, kbService);
+                embeddingClient, 16, kbMapper, docMapper, kbService);
 
         doc = freshDoc();
         when(docMapper.selectById(DOC_ID)).thenReturn(doc);
@@ -171,13 +172,57 @@ class IngestionPipelineTest {
 
         pipeline.submit(DOC_ID);
 
-        // 规格④：重试粒度是整次 embedAll，共 3 次尝试（DL-11 候选偏差）
+        // DL-11：batch 级重试，单批共 3 次尝试（两段文本同批，语义与整批重试等价）
         assertThat(attempts.get()).isEqualTo(3);
         assertThat(statusLog).containsExactly("PARSING", "CHUNKING", "EMBEDDING", "FAILED");
         assertThat(doc.getStatus()).isEqualTo("FAILED");
         assertThat(doc.getErrorMsg()).isEqualTo("向量化服务调用失败，请稍后重试");
         verify(kbService, never()).replaceChunks(any(), anyList());
         verify(chunkMapper, never()).insertBatch(anyList());
+    }
+
+    @Test
+    void 第二批失败_已成功批次不重嵌且整体FAILED() {
+        // 解析器桩：五段 A-E 各 250 字 → 3 块；批大小 2 → 批1=[块0,块1]（含 A），批2=[块2]（含 E）
+        DocumentParser fiveParaParser = new DocumentParser() {
+            @Override
+            public boolean supports(String fileName, String mimeType) {
+                return true;
+            }
+
+            @Override
+            public ParsedDocument parse(File file) {
+                return ParsedDocument.of(String.join("\n",
+                        "A".repeat(250), "B".repeat(250), "C".repeat(250), "D".repeat(250), "E".repeat(250)));
+            }
+        };
+        pipeline = new IngestionPipeline(Runnable::run, storage, fiveParaParser, new FixedSizeChunker(),
+                embeddingClient, 2, kbMapper, docMapper, kbService);
+
+        AtomicInteger failedAttempts = new AtomicInteger();
+        when(embeddingClient.embedAll(anyList())).thenAnswer(inv -> {
+            List<String> texts = inv.getArgument(0);
+            if (texts.get(0).contains("EEEEE")) {
+                failedAttempts.incrementAndGet();
+                throw new ModelClientException(ErrorType.SERVER_ERROR, "zhipu 500");
+            }
+            return texts.stream().map(t -> new float[1024]).toList();
+        });
+
+        pipeline.submit(DOC_ID);
+
+        // 批1 成功 1 次 + 批2 失败重试 3 次 = 4 次调用
+        ArgumentCaptor<List<String>> argsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(embeddingClient, times(4)).embedAll(argsCaptor.capture());
+        assertThat(failedAttempts.get()).isEqualTo(3);
+        long chunk0Calls = argsCaptor.getAllValues().stream()
+                .filter(batch -> batch.get(0).contains("AAAAA"))
+                .count();
+        // DL-11 核心语义：已成功批次只嵌入一次，不随后续批次失败重嵌
+        assertThat(chunk0Calls).isEqualTo(1);
+        assertThat(statusLog).containsExactly("PARSING", "CHUNKING", "EMBEDDING", "FAILED");
+        assertThat(doc.getErrorMsg()).isEqualTo("向量化服务调用失败，请稍后重试");
+        verify(kbService, never()).replaceChunks(any(), anyList());
     }
 
     @Test
@@ -194,7 +239,7 @@ class IngestionPipelineTest {
             }
         };
         pipeline = new IngestionPipeline(Runnable::run, storage, brokenParser, new FixedSizeChunker(),
-                embeddingClient, kbMapper, docMapper, kbService);
+                embeddingClient, 16, kbMapper, docMapper, kbService);
 
         pipeline.submit(DOC_ID);
 

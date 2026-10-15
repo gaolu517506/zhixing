@@ -13,6 +13,7 @@ import com.zhixing.infra.storage.FileStorage;
 import com.zhixing.service.KbService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 
@@ -21,6 +22,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.Executor;
 
@@ -29,8 +31,10 @@ import java.util.concurrent.Executor;
  *
  * - 状态机纪律：每进入一个节点先落库 status 再干活（前端轮询可见进度）；节点内异常 → FAILED，
  *   error_msg 只放对外安全文案，堆栈留在服务端日志。
- * - 嵌入重试：整次 embedAll 失败重试 2 次（共 3 次尝试）仍败 → 整体 FAILED。重试粒度是整次
- *   embedAll 而非单 batch（客户端内部还会自行分片），不做断点续嵌——阶段 1 从简，偏差记 DL-11 候选。
+ * - 嵌入重试（DL-11 定稿：batch 级）：pipeline 按 zhixing.llm.embedding.batch-size 自行分片逐批
+ *   调用 embedAll，单批失败重试 2 次（共 3 次尝试）仍败 → 整体 FAILED；已成功批次直接落位
+ *   结果数组，不随后续批次失败重嵌。红线禁止改 infra/llm，故分片与重试都收在本类——
+ *   批大小与客户端 maxBatchSize 同源（同一 yaml 键），单批不超限时客户端内部分片不会触发。
  * - 写入：经 {@link KbService#replaceChunks}（先删后插，单事务在 service 层）。
  * - 线程模型：submit 提交 ingest-pool；池满触发 CallerRuns 由提交线程亲自执行（天然背压），
  *   阻塞的是调用方而不是无限堆任务。
@@ -39,7 +43,7 @@ import java.util.concurrent.Executor;
 @Component
 public class IngestionPipeline {
 
-    /** 首次 + 重试 2 次 */
+    /** 单批重试次数：首次 + 重试 2 次 */
     private static final int EMBED_MAX_ATTEMPTS = 3;
 
     private final Executor ingestPool;
@@ -47,6 +51,7 @@ public class IngestionPipeline {
     private final DocumentParser documentParser;
     private final Chunker chunker;
     private final EmbeddingClient embeddingClient;
+    private final int embedBatchSize;
     private final KbKnowledgeBaseMapper kbMapper;
     private final KbDocumentMapper docMapper;
     private final KbService kbService;
@@ -56,6 +61,7 @@ public class IngestionPipeline {
                              DocumentParser documentParser,
                              Chunker chunker,
                              EmbeddingClient embeddingClient,
+                             @Value("${zhixing.llm.embedding.batch-size:16}") int embedBatchSize,
                              KbKnowledgeBaseMapper kbMapper,
                              KbDocumentMapper docMapper,
                              // @Lazy 断构造环：KbService.upload → pipeline.submit，本类 → KbService.replaceChunks
@@ -65,6 +71,7 @@ public class IngestionPipeline {
         this.documentParser = documentParser;
         this.chunker = chunker;
         this.embeddingClient = embeddingClient;
+        this.embedBatchSize = embedBatchSize;
         this.kbMapper = kbMapper;
         this.docMapper = docMapper;
         this.kbService = kbService;
@@ -144,14 +151,31 @@ public class IngestionPipeline {
         return chunks.stream().map(Chunk::content).toList();
     }
 
+    /** 按 embedBatchSize 切批顺序嵌入；某批最终失败即整体失败，已成功批次保留不重嵌。 */
     private List<float[]> embedAllWithRetry(Long documentId, List<String> texts) {
+        float[][] results = new float[texts.size()][];
+        int from = 0;
+        while (from < texts.size()) {
+            int to = Math.min(from + embedBatchSize, texts.size());
+            List<float[]> batchVectors = embedBatchWithRetry(documentId, texts.subList(from, to));
+            for (int i = from; i < to; i++) {
+                results[i] = batchVectors.get(i - from);
+            }
+            from = to;
+        }
+        return Arrays.asList(results);
+    }
+
+    /** 单批嵌入，失败重试至多 EMBED_MAX_ATTEMPTS 次（DL-11：重试只打当前批，不打已成功批次）。 */
+    private List<float[]> embedBatchWithRetry(Long documentId, List<String> batch) {
         RuntimeException last = null;
         for (int attempt = 1; attempt <= EMBED_MAX_ATTEMPTS; attempt++) {
             try {
-                return embeddingClient.embedAll(texts);
+                return embeddingClient.embedAll(batch);
             } catch (RuntimeException e) {
                 last = e;
-                log.warn("embedAll 第 {}/{} 次失败 docId={}：{}", attempt, EMBED_MAX_ATTEMPTS, documentId, e.getMessage());
+                log.warn("embed 批次（{}条）第 {}/{} 次失败 docId={}：{}",
+                        batch.size(), attempt, EMBED_MAX_ATTEMPTS, documentId, e.getMessage());
             }
         }
         throw last;
