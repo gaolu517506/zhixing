@@ -231,6 +231,21 @@ class QaServiceTest {
     }
 
     @Test
+    void 收尾落库失败_回答仍完整送达_done以null消息id标记未持久化() {
+        // 实测事故回归：sources 列 jsonb 写入失败曾让连接在 done 之前被 complete() 关闭；
+        // 修复后落库失败不升级为链路失败——回答已送达，done.messageId=null 标记未持久化
+        when(messageMapper.insert(any(QaMessage.class))).thenThrow(new IllegalStateException("jsonb write fail"));
+
+        qaService.runQa(request(), 1L, 100L, sink);
+
+        assertThat(sink.events).hasSize(5);
+        assertThat(sink.events.get(0)).startsWith("start:");
+        assertThat(sink.events.get(3)).startsWith("sources:");
+        assertThat(sink.events.get(4)).startsWith("done:").contains("\"messageId\":null");
+        assertThat(sink.completed).isTrue();
+    }
+
+    @Test
     void trace关闭时_链路正常且零trace写入() {
         TraceProperties off = new TraceProperties();
         off.setEnabled(false);

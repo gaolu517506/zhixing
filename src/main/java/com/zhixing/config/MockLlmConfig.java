@@ -24,7 +24,7 @@ import java.util.List;
  * 从容器里摘除，换成本类的固定行为桩——检索与问答链路代码零感知，注入的仍是 ChatClient/EmbeddingClient。
  * 普通 profile（含测试与生产）下本类整体不加载，零影响。
  */
-@Configuration
+@Configuration(proxyBeanMethods = false)
 @Profile("mock-llm")
 public class MockLlmConfig implements BeanDefinitionRegistryPostProcessor {
 

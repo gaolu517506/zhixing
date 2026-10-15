@@ -185,17 +185,23 @@ public class QaService {
         finish(sessionId, sink, runId, start, content, sources, usage, failure);
     }
 
-    /** 收尾：终态成对规则的唯一落点。正常 = sources + done；异常 = 已生成内容先落库，再 error + done。 */
+    /**
+     * 收尾：终态成对规则的唯一落点。正常 = sources + done；异常 = 已生成内容先落库，再 error + done。
+     * 本方法自身必须走到 complete()：持久化再失败也不许击穿终态成对（收尾落库异常降级为
+     * 纯 error+done，完整答案只留服务端日志）——实测教训：sources 列 jsonb 写入失败曾让
+     * finally 的 complete() 抢在 error/done 之前关闭连接。
+     */
     private void finish(long sessionId, SseEventSink sink, long runId, long start,
                         StringBuilder content, List<SourceRef> sources, ChatUsage usage, Exception failure) {
         long costMs = System.currentTimeMillis() - start;
         boolean hasArtifacts = content.length() > 0 || sources != null;
         try {
             if (failure == null) {
-                long messageId = saveAssistantMessage(sessionId, content.toString(), sources, usage, costMs);
+                long messageId = saveAssistantQuietly(sessionId, content.toString(), sources, usage, costMs);
                 trace.finishRun(runId, "COMPLETED", costMs, null);
                 sink.trySend("sources", sources == null ? List.of() : sources);
-                sink.trySend("done", new SseDone(messageId,
+                // messageId=0 表示落库失败：回答已完整送达但未持久化，协议上以 null 告知前端
+                sink.trySend("done", new SseDone(messageId > 0 ? messageId : null,
                         usage != null ? usage.promptTokens() : null,
                         usage != null ? usage.completionTokens() : null,
                         costMs));
@@ -203,14 +209,31 @@ public class QaService {
             }
             // 异常路径：先落库（已生成的部分内容必须留下），再发终态
             log.error("QA 链路失败 sessionId={}", sessionId, failure);
-            long messageId = hasArtifacts
-                    ? saveAssistantMessage(sessionId, content.toString(), sources, usage, costMs)
-                    : 0;
+            Long messageId = null;
+            if (hasArtifacts) {
+                messageId = saveAssistantQuietly(sessionId, content.toString(), sources, usage, costMs);
+            }
             trace.finishRun(runId, "FAILED", costMs, failure.getMessage());
             sink.trySend("error", new SseError(errorCodeOf(failure), safeMessageOf(failure)));
-            sink.trySend("done", new SseDone(messageId > 0 ? messageId : null, null, null, costMs));
+            sink.trySend("done", new SseDone(messageId, null, null, costMs));
+        } catch (Exception finishFailure) {
+            // 收尾自身失败（如 finishRun 异常）：终态成对绝不能缺 done
+            log.error("QA 收尾流程异常 sessionId={}", sessionId, finishFailure);
+            sink.trySend("error", new SseError(ErrorCode.SERVER_ERROR.code(), "服务内部错误"));
+            sink.trySend("done", new SseDone(null, null, null, costMs));
         } finally {
             sink.complete();
+        }
+    }
+
+    /** 收尾落库兜底：失败只留日志，返回 0（消息没存上），绝不让它打断终态事件序列。 */
+    private long saveAssistantQuietly(long sessionId, String content, List<SourceRef> sources,
+                                      ChatUsage usage, long costMs) {
+        try {
+            return saveAssistantMessage(sessionId, content, sources, usage, costMs);
+        } catch (Exception e) {
+            log.error("assistant 消息落库失败 sessionId={} contentLen={}", sessionId, content.length(), e);
+            return 0;
         }
     }
 
