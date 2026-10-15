@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "mimosa-hook-status/v1",
+  "recordedAt": "2026-10-15T02:56:57.977Z",
+  "sessionId": "sess_ca03611a-6dd6-4b50-87d4-c7b097ed000d",
+  "event": "PostToolUse",
+  "toolName": "Edit",
+  "file": "/Users/holmes/workspace/github/zhixing-b/src/main/java/com/zhixing/service/QaService.java",
+  "outcome": "inconclusive",
+  "coverage": "partial",
+  "findingCount": 0,
+  "durationMs": 11,
+  "hostState": "hook_complete",
+  "reportHint": ".mimosa/reports/"
+}

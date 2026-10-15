@@ -1,0 +1,60 @@
+{
+  "schemaVersion": "mimosa-finding-history/v1",
+  "runId": "20261015T032130935Z-31494-70a9396a27ef",
+  "runStatus": "inconclusive",
+  "errors": [
+    "candidate-select:src/main/java/com/zhixing/infra/keyword/KeywordSearch.java: candidate_limit_exceeded: 47 changed reviewable file(s) were not scanned because the limit is 20",
+    "baseline-read:src/test/java/com/zhixing/service/QaServiceTest.java: baseline_snapshot_unreadable: file is missing from task baseline",
+    "baseline-read:src/test/java/com/zhixing/core/retrieval/RetrievalEngineTest.java: baseline_snapshot_unreadable: file is missing from task baseline",
+    "baseline-read:src/test/java/com/zhixing/core/retrieval/RrfFuserTest.java: baseline_snapshot_unreadable: file is missing from task baseline",
+    "baseline-read:src/test/java/com/zhixing/core/ingest/FixedSizeChunkerTest.java: baseline_snapshot_unreadable: file is missing from task baseline",
+    "baseline-read:src/test/java/com/zhixing/core/ingest/IngestSmokeTest.java: baseline_snapshot_unreadable: file is missing from task baseline",
+    "baseline-read:src/test/java/com/zhixing/core/ingest/IngestionPipelineTest.java: baseline_snapshot_unreadable: file is missing from task baseline",
+    "baseline-read:src/test/java/com/zhixing/core/eval/EvalMetricsTest.java: baseline_snapshot_unreadable: file is missing from task baseline",
+    "baseline-read:src/test/java/com/zhixing/core/eval/EvalRunner.java: baseline_snapshot_unreadable: file is missing from task baseline",
+    "baseline-read:src/test/java/com/zhixing/core/eval/EvalSetSupportTest.java: baseline_snapshot_unreadable: file is missing from task baseline",
+    "baseline-read:src/main/java/com/zhixing/service/KbService.java: baseline_snapshot_unreadable: file is missing from task baseline",
+    "baseline-read:src/main/java/com/zhixing/service/QaService.java: baseline_snapshot_unreadable: file is missing from task baseline",
+    "baseline-read:src/main/java/com/zhixing/service/SourceRef.java: baseline_snapshot_unreadable: file is missing from task baseline",
+    "baseline-read:src/main/java/com/zhixing/service/SseEmitterSink.java: baseline_snapshot_unreadable: file is missing from task baseline",
+    "baseline-read:src/main/java/com/zhixing/service/SseEventSink.java: baseline_snapshot_unreadable: file is missing from task baseline",
+    "baseline-read:src/main/java/com/zhixing/infra/vector/PgVectorStore.java: baseline_snapshot_unreadable: file is missing from task baseline",
+    "baseline-read:src/main/java/com/zhixing/infra/vector/VectorStore.java: baseline_snapshot_unreadable: file is missing from task baseline",
+    "baseline-read:src/main/java/com/zhixing/infra/trace/TraceContext.java: baseline_snapshot_unreadable: file is missing from task baseline",
+    "baseline-read:src/main/java/com/zhixing/infra/trace/TraceRecorder.java: baseline_snapshot_unreadable: file is missing from task baseline",
+    "baseline-read:src/main/java/com/zhixing/infra/storage/FileStorage.java: baseline_snapshot_unreadable: file is missing from task baseline",
+    "baseline-read:src/main/java/com/zhixing/infra/storage/LocalFileStorage.java: baseline_snapshot_unreadable: file is missing from task baseline"
+  ],
+  "target": ".",
+  "revision": "0b9883bed21dbeafd7523ceb911f6a6c10e376ad",
+  "diffHash": "1e0905d57fe991933ecdf004981ef75b6802a1b66c5042d958b740598d388d52",
+  "rulesVersion": "unavailable",
+  "recordedAt": "2026-10-15T03:21:30.935Z",
+  "timing": {
+    "startedAt": "2026-10-15T03:21:28.544Z",
+    "completedAt": "2026-10-15T03:21:30.935Z",
+    "durationMs": 2391
+  },
+  "tokens": {
+    "input": 0,
+    "output": 0,
+    "total": 0,
+    "modelCalls": 0,
+    "measurement": "known-zero"
+  },
+  "findings": {
+    "total": 0,
+    "bySeverity": {},
+    "byStatus": {}
+  },
+  "coverage": {
+    "status": "partial",
+    "reasonCounts": {
+      "candidate_limit_exceeded": 1,
+      "baseline_snapshot_unreadable": 20,
+      "project_check_failed": 21
+    }
+  },
+  "evidenceBoundary": "static_only",
+  "immutableReport": ".mimosa/reports/task-review-sess_27b9f436-0cc8-4919-94ac-1ec4325a3d5e-20261015T032130935Z-31494-70a9396a27ef.json"
+}

@@ -33,8 +33,8 @@ zhixing:
         chat-model: glm-4-flash             # 备选/辅助调用（免费档）；模型名以智谱控制台为准
         embedding-model: embedding-3        # dimensions 入参可选 256~2048
     chat:
-      primary: deepseek/deepseek-chat       # 主力
-      fallback: zhipu/glm-4-flash           # 一主一备、跨供应商降级（阶段 4 容错，阶段 1 只用 primary）
+      primary: zhipu/glm-4-flash            # 2026-10-15 集成验收时 api.deepseek.com 代理/直连均不可达（环境问题），临时切备用供应商；恢复后切回 deepseek/deepseek-chat
+      fallback: deepseek/deepseek-chat      # 原主力降为候选（阶段 4 容错装饰器消费）
       timeout-ms: 60000
       first-token-timeout-ms: 15000         # 阶段 4 降级用，先配置好
     embedding:
