@@ -64,10 +64,10 @@ zhixing:
     pool-max: 4
     emitter-timeout-ms: 900000              # SSE 超时 15 分钟
   eval:
-    enabled: false                          # 评测旁路开关：false 时接口真 404
+    enabled: true                           # 评测旁路开关（T1-7 baseline 阶段临时开启，收口后关回 false）
     key: local-eval-key                     # X-Eval-Key 比对值（生产环境务必改掉）
     set-path: docs/scenario/eval-set.jsonl  # 评估集路径（EvalRunner 读）
-    kb-id: 0                                # 评估目标知识库，真实运行前必须配置
+    kb-id: 2110626172473077760              # 评估目标知识库（场景包评估库，ingest-ready 清洗版 10 篇）
   trace:
     enabled: true                           # Trace 埋点总开关（压测/生产可关）
     max-text-length: 2000                   # node input/output 落库截断

@@ -1,11 +1,14 @@
 package com.zhixing.core.eval;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.zhixing.config.EvalProperties;
 import com.zhixing.config.RetrieveProperties;
 import com.zhixing.core.retrieval.CitedChunk;
 import com.zhixing.core.retrieval.RetrievalEngine;
 import com.zhixing.core.retrieval.RetrievalResult;
 import com.zhixing.core.retrieval.RetrieveBudget;
+import com.zhixing.dao.entity.KbDocument;
+import com.zhixing.dao.mapper.KbDocumentMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -14,6 +17,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -43,6 +47,9 @@ class EvalRunner {
     @Autowired
     private RetrieveProperties retrieveProps;
 
+    @Autowired
+    private KbDocumentMapper docMapper;
+
     @Test
     void runEvaluation() {
         assumeTrue(evalProps.getKbId() > 0, "zhixing.eval.kb-id 未配置，跳过评测");
@@ -67,9 +74,12 @@ class EvalRunner {
         printReport(results);
     }
 
-    /** 业务码 ↔ docId 默认按 file_name 去扩展名解析；真实规则待 lead 拍板后替换。 */
+    /** 业务码 = file_name 去扩展名（如 01-param-xiaomi-15-ultra）。双线合并后直接读 A 线 mapper。 */
     private Map<Long, String> loadDocCodes(long kbId) {
-        return java.util.Map.of(); // 骨架占位：真实数据就绪后从 kb_document 读 (id, file_name)
+        Map<Long, String> codes = new LinkedHashMap<>();
+        docMapper.selectList(new LambdaQueryWrapper<KbDocument>().eq(KbDocument::getKbId, kbId))
+                .forEach(d -> codes.put(d.getId(), d.getFileName()));
+        return codes;
     }
 
     private long resolveDocId(Map<Long, String> docIdToCode, String code) {

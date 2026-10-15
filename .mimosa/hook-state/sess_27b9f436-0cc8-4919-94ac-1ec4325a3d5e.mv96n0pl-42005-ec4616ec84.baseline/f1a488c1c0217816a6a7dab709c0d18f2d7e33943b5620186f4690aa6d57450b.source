@@ -24,7 +24,7 @@ KB_ID=$(curl -sf -X POST "$BASE/api/kb" -H 'Content-Type: application/json' \
   -d '{"name":"验收测试库","description":"acceptance"}' | json "d['data']['id']")
 echo "kbId=$KB_ID"
 
-echo "=== 步骤 2：上传 $DOC（同 hash 重复跑会命中幂等） ==="
+echo "=== 步骤 2：上传 ${DOC}（同 hash 重复跑会命中幂等） ==="
 UPLOAD=$(curl -sf -X POST "$BASE/api/kb/$KB_ID/documents" -F "file=@$DOC")
 echo "$UPLOAD"
 DOC_ID=$(echo "$UPLOAD" | json "d['data']['documentId']")
