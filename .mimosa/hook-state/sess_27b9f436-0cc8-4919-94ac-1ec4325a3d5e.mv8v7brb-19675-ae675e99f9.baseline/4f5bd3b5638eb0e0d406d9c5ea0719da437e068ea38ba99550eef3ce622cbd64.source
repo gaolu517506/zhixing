@@ -1,0 +1,65 @@
+package com.zhixing.common;
+
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+
+/**
+ * 全局异常翻译官：把所有异常统一翻译成 Result。
+ * DL-3 决策：HTTP 状态码恒为 200，错误语义全在业务码里——前端只写一套"解析 code"的逻辑。
+ */
+@Slf4j
+@RestControllerAdvice
+public class GlobalExceptionHandler {
+
+    /** 业务异常：预期内的失败，warn 级别足够，不打堆栈。 */
+    @ExceptionHandler(BusinessException.class)
+    public Result<Void> handleBusinessException(BusinessException e) {
+        log.warn("business error [{}]: {}", e.getErrorCode().code(), e.getMessage());
+        return Result.fail(e.getErrorCode(), e.getMessage());
+    }
+
+    /** 参数校验失败：取第一个字段错误给前端（A0000）。 */
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public Result<Void> handleValidation(MethodArgumentNotValidException e) {
+        String msg = e.getBindingResult().getFieldErrors().stream()
+                .findFirst()
+                .map(f -> f.getDefaultMessage())
+                .orElse(ErrorCode.CLIENT_ERROR.message());
+        log.warn("validation failed: {}", msg);
+        return Result.fail(ErrorCode.CLIENT_ERROR, msg);
+    }
+
+    /** 参数类型不匹配（如 ?times=abc 传给 Integer）：客户端的错，归 A0000，不值得打堆栈。 */
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public Result<Void> handleTypeMismatch(MethodArgumentTypeMismatchException e) {
+        String expected = e.getRequiredType() != null ? e.getRequiredType().getSimpleName() : "未知";
+        log.warn("type mismatch on param [{}]: {}", e.getName(), e.getMessage());
+        return Result.fail(ErrorCode.CLIENT_ERROR, "参数 " + e.getName() + " 类型不正确，期望 " + expected);
+    }
+
+    /** 请求体不可读（JSON 格式错误、缺 body）：客户端的错。 */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public Result<Void> handleUnreadableBody(HttpMessageNotReadableException e) {
+        log.warn("unreadable request body: {}", e.getMessage());
+        return Result.fail(ErrorCode.CLIENT_ERROR, "请求体格式错误");
+    }
+
+    /** 必填参数缺失：客户端的错。 */
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public Result<Void> handleMissingParam(MissingServletRequestParameterException e) {
+        log.warn("missing required param [{}]", e.getParameterName());
+        return Result.fail(ErrorCode.CLIENT_ERROR, "缺少必填参数：" + e.getParameterName());
+    }
+
+    /** 兜底：真实原因只留服务端日志（error 级 + 堆栈），对外永远只说"服务内部错误"。 */
+    @ExceptionHandler(Exception.class)
+    public Result<Void> handleUnexpected(Exception e) {
+        log.error("uncaught exception", e);
+        return Result.fail(ErrorCode.SERVER_ERROR);
+    }
+}
