@@ -1,0 +1,5 @@
+{"id":"F001","query":"小米15 Ultra 的电池容量是多少","expected_doc_ids":["01-param-xiaomi-15-ultra"],"difficulty":"easy","note":"fixture：精确参数"}
+{"id":"F002","query":"Redmi K80 屏幕多大","expected_doc_ids":["02-param-redmi-k80"],"difficulty":"easy","note":"fixture"}
+{"id":"F003","query":"Watch S4 续航怎么样","expected_doc_ids":["05-param-xiaomi-watch-s4"],"difficulty":"medium","note":"fixture"}
+{"id":"F004","query":"手机充不进电怎么排查","expected_doc_ids":["08-fault-phone-charging","10-faq-battery-maintenance"],"difficulty":"hard","note":"fixture：多证据文档"}
+{"id":"F005","query":"保修政策包含哪些内容","expected_doc_ids":["07-policy-warranty"],"difficulty":"medium","note":"fixture"}

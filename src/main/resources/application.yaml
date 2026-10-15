@@ -49,3 +49,25 @@ zhixing:
   ingest:
     pool-core: 2                            # 入库异步线程池（有界队列 64 + CallerRuns 背压）
     pool-max: 4
+
+  # ===== 以下为检索问答线（T1-5/T1-6/T1-7）配置 =====
+  retrieve:
+    vector-top-k: 20                        # 向量通道召回数
+    keyword-top-k: 20                       # 关键词通道召回数
+    rrf-k: 60                               # RRF 融合常数
+    final-top-k: 5                          # 融合排序后最终返回条数
+    keyword-mode: trgm                      # trgm | ilike（ILIKE 保底开关，详设 §4.1 注）
+    pool-core: 4                            # 检索双通道并行池
+    pool-max: 8
+  qa:
+    pool-core: 2                            # QA 链路池（与检索池隔离，避免嵌套提交饿死）
+    pool-max: 4
+    emitter-timeout-ms: 900000              # SSE 超时 15 分钟
+  eval:
+    enabled: false                          # 评测旁路开关：false 时接口真 404
+    key: local-eval-key                     # X-Eval-Key 比对值（生产环境务必改掉）
+    set-path: docs/scenario/eval-set.jsonl  # 评估集路径（EvalRunner 读）
+    kb-id: 0                                # 评估目标知识库，真实运行前必须配置
+  trace:
+    enabled: true                           # Trace 埋点总开关（压测/生产可关）
+    max-text-length: 2000                   # node input/output 落库截断
