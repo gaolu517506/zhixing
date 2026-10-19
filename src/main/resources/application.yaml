@@ -71,3 +71,13 @@ zhixing:
   trace:
     enabled: true                           # Trace 埋点总开关（压测/生产可关）
     max-text-length: 2000                   # node input/output 落库截断
+
+  # ===== 以下为阶段 2（多轮对话）契约基线配置（详设 08-阶段2 §12） =====
+  memory:
+    window-size: 8                          # 记忆窗口（完整轮数，作者校准值）
+  summary:
+    trigger-turns: 9                        # 完成轮数达到即同步滚动摘要
+    max-chars: 200                          # 摘要上限
+  rewrite:
+    enabled: true                           # 问题重写总开关（关闭 = 阶段 1 单轮行为）
+    keyword-channel: true                   # 重写关键词数组进检索（D6 对比开关）

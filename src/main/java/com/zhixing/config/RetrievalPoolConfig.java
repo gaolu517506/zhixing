@@ -16,7 +16,8 @@ import java.util.concurrent.TimeUnit;
  * 链路任务占满线程时通道任务永远排队，join 永不返回，整池死锁。
  */
 @Configuration
-@EnableConfigurationProperties({RetrieveProperties.class, QaProperties.class, EvalProperties.class, TraceProperties.class})
+@EnableConfigurationProperties({RetrieveProperties.class, QaProperties.class, EvalProperties.class,
+        TraceProperties.class, MemoryProperties.class, SummaryProperties.class, RewriteProperties.class})
 public class RetrievalPoolConfig {
 
     @Bean(name = "retrieval-pool")

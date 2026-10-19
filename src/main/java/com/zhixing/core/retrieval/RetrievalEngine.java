@@ -1,6 +1,7 @@
 package com.zhixing.core.retrieval;
 
 import com.zhixing.config.RetrieveProperties;
+import com.zhixing.config.RewriteProperties;
 import com.zhixing.infra.keyword.KeywordSearch;
 import com.zhixing.infra.trace.TraceContext;
 import com.zhixing.infra.trace.TraceRecorder;
@@ -45,6 +46,8 @@ public class RetrievalEngine {
 
     private final RetrieveProperties props;
 
+    private final RewriteProperties rewriteProps;
+
     private final Executor retrievalPool;
 
     public RetrievalEngine(VectorStore vectorStore,
@@ -53,6 +56,7 @@ public class RetrievalEngine {
                            RerankClient rerankClient,
                            TraceRecorder trace,
                            RetrieveProperties props,
+                           RewriteProperties rewriteProps,
                            @Qualifier("retrieval-pool") Executor retrievalPool) {
         this.vectorStore = vectorStore;
         this.keywordSearch = keywordSearch;
@@ -60,13 +64,25 @@ public class RetrievalEngine {
         this.rerankClient = rerankClient;
         this.trace = trace;
         this.props = props;
+        this.rewriteProps = rewriteProps;
         this.retrievalPool = retrievalPool;
     }
 
     /**
-     * 双通道并行检索 + RRF 融合 + rerank 精排。traceCtx 传 null 则不埋点（评测旁路用）。
+     * 阶段 1 兼容签名：不带重写关键词，keyword 通道走整句。
      */
     public RetrievalResult retrieve(long kbId, String query, RetrieveBudget budget, TraceContext traceCtx) {
+        return retrieve(kbId, query, null, budget, traceCtx);
+    }
+
+    /**
+     * 双通道并行检索 + RRF 融合 + rerank 精排。traceCtx 传 null 则不埋点（评测旁路用）。
+     * keywords 非空且 zhixing.rewrite.keyword-channel=true 时 keyword 通道走多关键词匹配（阶段 2），
+     * 否则退回整句（重写降级 / 开关关闭 = 阶段 1 行为）。
+     */
+    public RetrievalResult retrieve(long kbId, String query, List<String> keywords,
+                                    RetrieveBudget budget, TraceContext traceCtx) {
+        boolean useKeywordArray = rewriteProps.isKeywordChannel() && keywords != null && !keywords.isEmpty();
         CompletableFuture<List<CitedChunk>> vectorFuture = CompletableFuture.supplyAsync(
                 () -> tracedChannel(traceCtx, "vector_search", query,
                         () -> vectorStore.topK(kbId, embeddingClient.embed(query), budget.vectorTopK())),
@@ -74,7 +90,9 @@ public class RetrievalEngine {
 
         CompletableFuture<List<CitedChunk>> keywordFuture = CompletableFuture.supplyAsync(
                 () -> tracedChannel(traceCtx, "keyword_search", query,
-                        () -> keywordSearch.topK(kbId, query, budget.keywordTopK())),
+                        () -> useKeywordArray
+                                ? keywordSearch.topK(kbId, keywords, budget.keywordTopK())
+                                : keywordSearch.topK(kbId, query, budget.keywordTopK())),
                 retrievalPool);
 
         List<CitedChunk> vector = vectorFuture.join();

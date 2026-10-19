@@ -73,7 +73,7 @@ class RetrievalEngineTest {
                             .toList();
                 });
         engine = new RetrievalEngine(vectorStore, keywordSearch, embeddingClient, rerankClient,
-                traceRecorder, new RetrieveProperties(), Runnable::run);
+                traceRecorder, new RetrieveProperties(), new com.zhixing.config.RewriteProperties(), Runnable::run);
     }
 
     private TraceContext traceOn() {
