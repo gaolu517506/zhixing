@@ -46,7 +46,9 @@ public class EvalController {
         this.retrieveProps = retrieveProps;
     }
 
-    public record EvalRetrieveRequest(@NotNull Long kbId, @NotBlank String question, Integer topK) {
+    /** keywords 为 T2-B 数组 SQL 验证通道：可空（空 = 阶段 1 整句行为）；Engine 按 keyword-channel 开关分流。 */
+    public record EvalRetrieveRequest(@NotNull Long kbId, @NotBlank String question, Integer topK,
+                                      List<String> keywords) {
     }
 
     public record EvalRetrieveView(List<Long> docIds, List<Long> chunkIds,
@@ -65,7 +67,8 @@ public class EvalController {
                 ? RetrieveBudget.of(request.topK(), request.topK(), request.topK())
                 : RetrieveBudget.of(retrieveProps.getVectorTopK(), retrieveProps.getKeywordTopK(),
                         retrieveProps.getFinalTopK());
-        RetrievalResult detail = retrievalEngine.retrieve(request.kbId(), request.question(), budget, null);
+        RetrievalResult detail = retrievalEngine.retrieve(request.kbId(), request.question(),
+                request.keywords(), budget, null);
         long costMs = System.currentTimeMillis() - start;
         log.info("eval retrieve: kbId={}, question={}, costMs={}", request.kbId(), request.question(), costMs);
 
