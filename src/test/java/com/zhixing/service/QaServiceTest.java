@@ -1,10 +1,20 @@
 package com.zhixing.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.zhixing.config.MemoryProperties;
 import com.zhixing.config.QaProperties;
 import com.zhixing.config.RetrieveProperties;
+import com.zhixing.config.RewriteProperties;
+import com.zhixing.config.SummaryProperties;
 import com.zhixing.config.TraceProperties;
 import com.zhixing.controller.QaStreamRequest;
+import com.zhixing.core.memory.MemoryView;
+import com.zhixing.core.memory.NoopQueryRewriter;
+import com.zhixing.core.memory.QueryRewriter;
+import com.zhixing.core.memory.RewrittenQuery;
+import com.zhixing.core.memory.SessionMemory;
+import com.zhixing.core.memory.Summarizer;
+import com.zhixing.core.memory.Turn;
 import com.zhixing.core.retrieval.CitedChunk;
 import com.zhixing.core.retrieval.RetrievalEngine;
 import com.zhixing.core.retrieval.RetrievalResult;
@@ -36,7 +46,9 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -44,8 +56,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * QA 链路单测（任务书 §3）：fake ChatClient（固定流）+ fake RetrievalEngine + mock mapper，
- * 断言 SSE 事件序 start→content(s)→sources→done、异常路径 error+done、消息落库字段。全程不联网。
+ * QA 链路单测（任务书 T2-A §3）：fake ChatClient + mock RetrievalEngine/Mapper/SessionMemory，
+ * 断言 SSE 事件序、多轮 messages 组装、摘要触发落库、重写降级与开关等价性。全程不联网。
+ * 阶段 1 六用例全量保留（适配五参检索桩），断言强度只增不减。
  */
 class QaServiceTest {
 
@@ -85,11 +98,12 @@ class QaServiceTest {
         }
     }
 
-    /** 固定行为 fake：默认两段 delta + stop 终态（带 usage）；测试按需改 deltas / failureAfterDeltas。 */
+    /** 固定行为 fake：默认两段 delta + stop 终态（带 usage）；记录收到的 ChatRequest。 */
     static class FakeChatClient implements ChatClient {
         List<String> deltas = List.of("小米 15 Ultra 搭载", "6000mAh 电池 [1]。");
         RuntimeException failureAfterDeltas;
         final ChatUsage usage = new ChatUsage(18, 10);
+        ChatRequest lastStreamRequest;
 
         @Override
         public String provider() {
@@ -103,6 +117,7 @@ class QaServiceTest {
 
         @Override
         public void stream(ChatRequest request, StreamCallback callback) {
+            lastStreamRequest = request;
             try {
                 for (String delta : deltas) {
                     callback.onContent(delta);
@@ -126,9 +141,15 @@ class QaServiceTest {
         retrievalEngine = mock(RetrievalEngine.class);
         when(messageMapper.insert(any(QaMessage.class))).thenReturn(1);
         when(sessionMapper.insert(any(QaSession.class))).thenReturn(1);
+        // 真实 SessionMemory 走 mocked mapper：空会话（summary=null、窗口空、0 轮）→ 阶段 1 形态
+        when(messageMapper.selectCount(any())).thenReturn(0L);
+        when(messageMapper.selectList(any())).thenReturn(List.of());
         fakeChat = new FakeChatClient();
 
         CitedChunk hit = new CitedChunk(9001L, 101L, "01-param-xiaomi-15-ultra.md", "小米15 Ultra 电池 6000mAh", 0.032);
+        when(retrievalEngine.retrieve(anyLong(), any(), any(), any(RetrieveBudget.class), any()))
+                .thenReturn(new RetrievalResult(List.of(hit), List.of(hit), List.of(hit)));
+        // 开关关闭分支走阶段 1 的 4 参重载
         when(retrievalEngine.retrieve(anyLong(), any(), any(RetrieveBudget.class), any()))
                 .thenReturn(new RetrievalResult(List.of(hit), List.of(hit), List.of(hit)));
 
@@ -137,9 +158,19 @@ class QaServiceTest {
     }
 
     private QaService newQaService(TraceProperties traceProps) {
+        return newQaService(traceProps,
+                new SessionMemory(sessionMapper, messageMapper, new MemoryProperties()),
+                new Summarizer(fakeChat, new SummaryProperties()),
+                new NoopQueryRewriter(),
+                new RewriteProperties());
+    }
+
+    private QaService newQaService(TraceProperties traceProps, SessionMemory memory, Summarizer summarizer,
+                                   QueryRewriter rewriter, RewriteProperties rewriteProps) {
         return new QaService(fakeChat, retrievalEngine, sessionMapper, messageMapper,
                 new TraceRecorder(traceRunMapper, traceNodeMapper, traceProps),
-                new RetrieveProperties(), new QaProperties(), new ObjectMapper(), Runnable::run);
+                new RetrieveProperties(), new QaProperties(), new ObjectMapper(), Runnable::run,
+                memory, summarizer, rewriter, new SummaryProperties(), rewriteProps);
     }
 
     private static QaStreamRequest request() {
@@ -148,6 +179,8 @@ class QaServiceTest {
         req.setQuestion("小米15 Ultra 的电池容量是多少？官方数据给出实测续航表现");
         return req;
     }
+
+    // ===== 阶段 1 六用例回归（语义不变） =====
 
     @Test
     void 正常流_事件序start_content_sources_done且消息落库() {
@@ -172,8 +205,7 @@ class QaServiceTest {
         assertThat(assistant.getCompletionTokens()).isEqualTo(10);
         assertThat(assistant.getCostMs()).isNotNull();
 
-        // trace 节点：vector/keyword/fusion/rerank 四节点由真实 RetrievalEngine 记录（本测试 mock 掉引擎），
-        // 这里只验证 QaService 自己埋的 llm_chat 节点 SUCCESS——引擎四节点见 RetrievalEngineTest
+        // trace 节点：空会话下无 rewrite/summarize，只有 QaService 自己埋的 llm_chat
         ArgumentCaptor<TraceNode> nodeCaptor = ArgumentCaptor.forClass(TraceNode.class);
         verify(traceNodeMapper).insert(nodeCaptor.capture());
         assertThat(nodeCaptor.getValue().getName()).isEqualTo("llm_chat");
@@ -182,7 +214,7 @@ class QaServiceTest {
 
     @Test
     void 检索异常_事件序start_error_done且不落assistant消息() {
-        when(retrievalEngine.retrieve(anyLong(), any(), any(RetrieveBudget.class), any()))
+        when(retrievalEngine.retrieve(anyLong(), any(), any(), any(RetrieveBudget.class), any()))
                 .thenThrow(new IllegalStateException("db down"));
 
         qaService.runQa(request(), 1L, 100L, sink);
@@ -253,12 +285,147 @@ class QaServiceTest {
         TraceRunMapper quietRunMapper = mock(TraceRunMapper.class);
         QaService service = new QaService(fakeChat, retrievalEngine, sessionMapper, messageMapper,
                 new TraceRecorder(quietRunMapper, quietNodeMapper, off),
-                new RetrieveProperties(), new QaProperties(), new ObjectMapper(), Runnable::run);
+                new RetrieveProperties(), new QaProperties(), new ObjectMapper(), Runnable::run,
+                new SessionMemory(sessionMapper, messageMapper, new MemoryProperties()),
+                new Summarizer(fakeChat, new SummaryProperties()),
+                new NoopQueryRewriter(), new SummaryProperties(), new RewriteProperties());
 
         service.runQa(request(), 1L, 100L, sink);
 
         assertThat(sink.events).anyMatch(e -> e.startsWith("done:"));
         verify(quietNodeMapper, never()).insert(any(TraceNode.class));
         verify(quietRunMapper, never()).insert(any(TraceRun.class));
+    }
+
+    // ===== 阶段 2 新增用例 =====
+
+    @Test
+    void 多轮memory注入_messages含系统规则与历史且检索用独立问题与关键词() {
+        QueryRewriter rewriter = (history, summary, q) ->
+                new RewrittenQuery("Redmi K80 的电池容量是多少", List.of("K80", "电池"), true);
+        SessionMemory memory = mock(SessionMemory.class);
+        when(memory.load(1L)).thenReturn(new MemoryView(null, List.of(
+                new Turn("user", "15 Ultra 防水吗"), new Turn("assistant", "IP68 [1]。"))));
+        when(memory.completedTurns(1L)).thenReturn(1);
+        QaService service = newQaService(new TraceProperties(), memory,
+                new Summarizer(fakeChat, new SummaryProperties()), rewriter, new RewriteProperties());
+
+        service.runQa(request(), 1L, 100L, sink);
+
+        // DL-14 ①：system 在首位 + 历史原样交替 + 末条 user = 资料块 + 独立问题
+        ChatRequest sent = fakeChat.lastStreamRequest;
+        assertThat(sent.getMessages()).hasSize(4);
+        assertThat(sent.getMessages().get(0).role()).isEqualTo("system");
+        assertThat(sent.getMessages().get(0).content()).contains("知识库问答助手");
+        assertThat(sent.getMessages().get(1).role()).isEqualTo("user");
+        assertThat(sent.getMessages().get(1).content()).isEqualTo("15 Ultra 防水吗");
+        assertThat(sent.getMessages().get(2).role()).isEqualTo("assistant");
+        assertThat(sent.getMessages().get(2).content()).isEqualTo("IP68 [1]。");
+        assertThat(sent.getMessages().get(3).role()).isEqualTo("user");
+        assertThat(sent.getMessages().get(3).content()).contains("[1] （来源：01-param-xiaomi-15-ultra.md）");
+        assertThat(sent.getMessages().get(3).content()).endsWith("Redmi K80 的电池容量是多少");
+
+        // 五参检索收到独立问题与关键词（keyword-channel 透传）
+        verify(retrievalEngine).retrieve(eq(9L), eq("Redmi K80 的电池容量是多少"),
+                eq(List.of("K80", "电池")), any(RetrieveBudget.class), any());
+        // trace 新增 rewrite 节点
+        ArgumentCaptor<TraceNode> nodeCaptor = ArgumentCaptor.forClass(TraceNode.class);
+        verify(traceNodeMapper, times(2)).insert(nodeCaptor.capture());
+        assertThat(nodeCaptor.getAllValues()).extracting(TraceNode::getName)
+                .containsExactly("rewrite", "llm_chat");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void 第9轮触发摘要_落库summary与summarizedMsgId且重写用新摘要() {
+        QueryRewriter rewriter = mock(QueryRewriter.class);
+        when(rewriter.rewrite(anyList(), any(), any()))
+                .thenReturn(new RewrittenQuery("独立问题", List.of(), false));
+        Summarizer summarizer = mock(Summarizer.class);
+        when(summarizer.roll(any(), anyList())).thenReturn("新摘要文本");
+        SessionMemory memory = mock(SessionMemory.class);
+        when(memory.load(1L)).thenReturn(new MemoryView("旧摘要", List.of(
+                new Turn("user", "q8"), new Turn("assistant", "a8"))));
+        when(memory.completedTurns(1L)).thenReturn(9);
+        when(memory.turnsBeforeWindow(1L)).thenReturn(List.of(
+                new Turn("user", "u1"), new Turn("assistant", "a1"),
+                new Turn("user", "u2"), new Turn("assistant", "a2"),
+                new Turn("user", "u3"), new Turn("assistant", "a3")));
+        QaService service = newQaService(new TraceProperties(), memory,
+                summarizer, rewriter, new RewriteProperties());
+
+        service.runQa(request(), 1L, 100L, sink);
+
+        // 素材策略：窗口外更早轮次全量送入（这里 3 轮 < 4 轮上限）
+        ArgumentCaptor<List<Turn>> batchCaptor = ArgumentCaptor.forClass(List.class);
+        verify(summarizer).roll(eq("旧摘要"), batchCaptor.capture());
+        assertThat(batchCaptor.getValue()).extracting(Turn::content)
+                .containsExactly("u1", "a1", "u2", "a2", "u3", "a3");
+        // 落库：summary_text=新摘要、summarized_msg_id=本轮 user 消息 id
+        ArgumentCaptor<QaSession> patchCaptor = ArgumentCaptor.forClass(QaSession.class);
+        verify(sessionMapper).updateById(patchCaptor.capture());
+        assertThat(patchCaptor.getValue().getId()).isEqualTo(1L);
+        assertThat(patchCaptor.getValue().getSummaryText()).isEqualTo("新摘要文本");
+        assertThat(patchCaptor.getValue().getSummarizedMsgId()).isEqualTo(100L);
+        // DL-14 ② 同步语义：本轮重写即用新摘要
+        verify(rewriter).rewrite(anyList(), eq("新摘要文本"), any());
+        // summarize + rewrite + llm_chat 三节点（窗口非空，rewrite 亦触发）
+        ArgumentCaptor<TraceNode> nodeCaptor = ArgumentCaptor.forClass(TraceNode.class);
+        verify(traceNodeMapper, times(3)).insert(nodeCaptor.capture());
+        assertThat(nodeCaptor.getAllValues()).extracting(TraceNode::getName)
+                .containsExactly("summarize", "rewrite", "llm_chat");
+    }
+
+    @Test
+    void 重写异常_降级用原问题直查且不终态() {
+        QueryRewriter rewriter = (history, summary, q) -> {
+            throw new IllegalStateException("rewrite llm down");
+        };
+        SessionMemory memory = mock(SessionMemory.class);
+        when(memory.load(1L)).thenReturn(new MemoryView(null, List.of(
+                new Turn("user", "q1"), new Turn("assistant", "a1"))));
+        when(memory.completedTurns(1L)).thenReturn(1);
+        QaService service = newQaService(new TraceProperties(), memory,
+                new Summarizer(fakeChat, new SummaryProperties()), rewriter, new RewriteProperties());
+
+        service.runQa(request(), 1L, 100L, sink);
+
+        // DL-14 ③ 降级不终态：检索用原问题 + 空关键词，终态仍是正常 sources+done
+        verify(retrievalEngine).retrieve(eq(9L), eq(request().getQuestion()), eq(List.of()),
+                any(RetrieveBudget.class), any());
+        assertThat(sink.events.get(sink.events.size() - 2)).startsWith("sources:");
+        assertThat(sink.events.get(sink.events.size() - 1)).startsWith("done:");
+        // rewrite 节点记 FAILED，llm_chat 照常
+        ArgumentCaptor<TraceNode> nodeCaptor = ArgumentCaptor.forClass(TraceNode.class);
+        verify(traceNodeMapper, times(2)).insert(nodeCaptor.capture());
+        assertThat(nodeCaptor.getAllValues().get(0).getName()).isEqualTo("rewrite");
+        assertThat(nodeCaptor.getAllValues().get(0).getStatus()).isEqualTo("FAILED");
+        assertThat(nodeCaptor.getAllValues().get(1).getName()).isEqualTo("llm_chat");
+        assertThat(nodeCaptor.getAllValues().get(1).getStatus()).isEqualTo("SUCCESS");
+    }
+
+    @Test
+    void 开关关闭_完整回到阶段1行为() {
+        SessionMemory memory = mock(SessionMemory.class);
+        Summarizer summarizer = mock(Summarizer.class);
+        QueryRewriter rewriter = mock(QueryRewriter.class);
+        RewriteProperties off = new RewriteProperties();
+        off.setEnabled(false);
+        QaService service = newQaService(new TraceProperties(), memory, summarizer, rewriter, off);
+
+        service.runQa(request(), 1L, 100L, sink);
+
+        // 无记忆、无摘要、无重写
+        verify(memory, never()).load(anyLong());
+        verify(summarizer, never()).roll(any(), anyList());
+        verify(rewriter, never()).rewrite(anyList(), any(), any());
+        // 阶段 1 的 4 参检索契约
+        verify(retrievalEngine).retrieve(anyLong(), any(), any(RetrieveBudget.class), any());
+        // 单 prompt rag-v0 形态（模板原文开头 + 资料块 + 问题）
+        ChatRequest sent = fakeChat.lastStreamRequest;
+        assertThat(sent.getMessages()).hasSize(1);
+        assertThat(sent.getMessages().get(0).role()).isEqualTo("user");
+        assertThat(sent.getMessages().get(0).content()).startsWith("你是知识库问答助手");
+        assertThat(sent.getMessages().get(0).content()).contains("【参考资料】").contains(request().getQuestion());
     }
 }
