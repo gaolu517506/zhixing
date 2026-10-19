@@ -1,5 +1,5 @@
 -- ============================================================
--- V1__init.sql —— 知行阶段 1 全量建表（来源：docs/design/02-详设-阶段1 §2）
+-- V1__init.sql —— 知行阶段 1 全量建表（来源：docs/design/stage-1/详设-阶段1-最小RAG闭环.md §2）
 -- 执行方式：docker exec -i zhixing-pg psql -U postgres -d zhixing < src/main/resources/db/V1__init.sql
 -- agent_run / agent_run_step 两表阶段 3 迁移脚本 V2 提供，本阶段不建。
 -- ============================================================

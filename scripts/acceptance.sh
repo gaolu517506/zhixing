@@ -19,10 +19,15 @@ echo "=== 步骤 0：health ==="
 curl -sf -m 5 "$BASE/api/health" || { echo "服务未启动：先 ./mvnw spring-boot:run"; exit 1; }
 echo
 
-echo "=== 步骤 1：建库 ==="
-KB_ID=$(curl -sf -X POST "$BASE/api/kb" -H 'Content-Type: application/json' \
-  -d '{"name":"验收测试库","description":"acceptance"}' | json "d['data']['id']")
-echo "kbId=$KB_ID"
+echo "=== 步骤 1：获取/创建验收测试库（T1-9 裁决修复：复用同名库，使幂等判重可跨脚本执行生效） ==="
+KB_ID=$($PSQL "SELECT id FROM kb_knowledge_base WHERE name='验收测试库' LIMIT 1")
+if [ -z "$KB_ID" ]; then
+  KB_ID=$(curl -sf -X POST "$BASE/api/kb" -H 'Content-Type: application/json' \
+    -d '{"name":"验收测试库","description":"acceptance"}' | json "d['data']['id']")
+  echo "新建库 kbId=$KB_ID"
+else
+  echo "复用已有库 kbId=$KB_ID"
+fi
 
 echo "=== 步骤 2：上传 ${DOC}（同 hash 重复跑会命中幂等） ==="
 UPLOAD=$(curl -sf -X POST "$BASE/api/kb/$KB_ID/documents" -F "file=@$DOC")
