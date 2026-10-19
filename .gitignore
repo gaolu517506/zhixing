@@ -61,3 +61,4 @@ frontend/dist/
 # AI 工具插件工作目录
 .v2c/
 .video_agent/
+.mimosa/
