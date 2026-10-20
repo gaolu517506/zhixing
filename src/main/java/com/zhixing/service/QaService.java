@@ -330,7 +330,8 @@ public class QaService {
     /**
      * 摘要触发（DL-14 ② 同步）：完成轮数（含窗外）达到阈值时，取窗口外最早 4 轮做增量滚动，
      * 落库 qa_session(summary_text, summarized_msg_id=本轮 user 消息 id) 并刷新本轮 memory。
-     * 降级不终态（DL-14 ③）：异常只告警并维持旧摘要（trace 已记 FAILED 节点），链路照走。
+     * 降级不终态（DL-14 ③）：roll 异常只告警并维持旧摘要（trace 已记 FAILED 节点），链路照走。
+     * 节点边界对齐全库约定：trace 只包被点名的操作（roll），落库在节点外、失败不记为摘要失败。
      */
     private MemoryView rollSummaryIfNeeded(long sessionId, long userMsgId, MemoryView memory,
                                            long runId, TraceContext ctx) {
@@ -343,21 +344,31 @@ public class QaService {
                 return memory;
             }
             List<Turn> batch = older.subList(0, Math.min(SUMMARIZE_BATCH_TURNS * 2, older.size()));
-            String rolled = trace.node(runId, ctx.seq(), "summarize", batch, () -> {
-                String newSummary = summarizer.roll(memory.summary(), batch);
-                QaSession patch = new QaSession();
-                patch.setId(sessionId);
-                patch.setSummaryText(newSummary);
-                // 语义：摘要已覆盖到本轮 user 消息之前的全部轮次
-                patch.setSummarizedMsgId(userMsgId);
-                patch.setUpdatedAt(LocalDateTime.now());
-                sessionMapper.updateById(patch);
-                return newSummary;
-            });
+            String rolled = trace.node(runId, ctx.seq(), "summarize", batch,
+                    () -> summarizer.roll(memory.summary(), batch));
+            saveSummaryQuietly(sessionId, userMsgId, rolled);
             return new MemoryView(rolled, memory.window());
         } catch (Exception e) {
             log.warn("摘要生成失败，维持旧值 sessionId={}: {}", sessionId, e.getMessage());
             return memory;
+        }
+    }
+
+    /**
+     * 摘要落库兜底（语义对齐 saveAssistantQuietly）：失败只留日志，本轮仍用新摘要——
+     * 触发条件未变，下轮提问会重新滚动，不因一次写库抖动把旧摘要带回链路。
+     */
+    private void saveSummaryQuietly(long sessionId, long userMsgId, String summary) {
+        try {
+            QaSession patch = new QaSession();
+            patch.setId(sessionId);
+            patch.setSummaryText(summary);
+            // 语义：摘要已覆盖到本轮 user 消息之前的全部轮次
+            patch.setSummarizedMsgId(userMsgId);
+            patch.setUpdatedAt(LocalDateTime.now());
+            sessionMapper.updateById(patch);
+        } catch (Exception e) {
+            log.warn("摘要落库失败 sessionId={}（本轮仍用新摘要）: {}", sessionId, e.getMessage());
         }
     }
 
