@@ -377,6 +377,35 @@ class QaServiceTest {
     }
 
     @Test
+    void 摘要落库失败_本轮仍用新摘要且链路正常() {
+        QueryRewriter rewriter = mock(QueryRewriter.class);
+        when(rewriter.rewrite(anyList(), any(), any()))
+                .thenReturn(new RewrittenQuery("独立问题", List.of(), false));
+        Summarizer summarizer = mock(Summarizer.class);
+        when(summarizer.roll(any(), anyList())).thenReturn("新摘要文本");
+        SessionMemory memory = mock(SessionMemory.class);
+        when(memory.load(1L)).thenReturn(new MemoryView("旧摘要", List.of(
+                new Turn("user", "q8"), new Turn("assistant", "a8"))));
+        when(memory.completedTurns(1L)).thenReturn(9);
+        when(memory.turnsBeforeWindow(1L)).thenReturn(List.of(
+                new Turn("user", "u1"), new Turn("assistant", "a1")));
+        when(sessionMapper.updateById(any(QaSession.class))).thenThrow(new IllegalStateException("db write fail"));
+        QaService service = newQaService(new TraceProperties(), memory, summarizer, rewriter, new RewriteProperties());
+
+        service.runQa(request(), 1L, 100L, sink);
+
+        // 对齐 saveAssistantQuietly 语义：落库失败只告警，本轮链路仍用新摘要（下轮触发自愈）
+        verify(rewriter).rewrite(anyList(), eq("新摘要文本"), any());
+        assertThat(sink.events.get(sink.events.size() - 2)).startsWith("sources:");
+        assertThat(sink.events.get(sink.events.size() - 1)).startsWith("done:");
+        // summarize 节点只包 roll：roll 成功 → 节点 SUCCESS（落库失败不记为摘要失败）
+        ArgumentCaptor<TraceNode> nodeCaptor = ArgumentCaptor.forClass(TraceNode.class);
+        verify(traceNodeMapper, times(3)).insert(nodeCaptor.capture());
+        assertThat(nodeCaptor.getAllValues().stream().filter(n -> "summarize".equals(n.getName())))
+                .allMatch(n -> "SUCCESS".equals(n.getStatus()));
+    }
+
+    @Test
     void 重写异常_降级用原问题直查且不终态() {
         QueryRewriter rewriter = (history, summary, q) -> {
             throw new IllegalStateException("rewrite llm down");
