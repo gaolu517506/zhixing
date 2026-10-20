@@ -7,6 +7,14 @@ import com.zhixing.common.BusinessException;
 import com.zhixing.common.ErrorCode;
 import com.zhixing.config.QaProperties;
 import com.zhixing.config.RetrieveProperties;
+import com.zhixing.config.RewriteProperties;
+import com.zhixing.config.SummaryProperties;
+import com.zhixing.core.memory.MemoryView;
+import com.zhixing.core.memory.QueryRewriter;
+import com.zhixing.core.memory.RewrittenQuery;
+import com.zhixing.core.memory.SessionMemory;
+import com.zhixing.core.memory.Summarizer;
+import com.zhixing.core.memory.Turn;
 import com.zhixing.core.retrieval.CitedChunk;
 import com.zhixing.core.retrieval.RetrievalEngine;
 import com.zhixing.core.retrieval.RetrievalResult;
@@ -33,21 +41,25 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * 链路 B 编排（详设 §5.2）：建会话 → start → 检索(trace 四节点) → Prompt 组装 →
- * LLM 流式(trace llm_chat) → content 逐段转发 → 落库 → sources → done。
+ * 链路 B 编排（详设-阶段1 §5.2 + 详设-阶段2 §7）：建会话 → start →
+ * [记忆加载 → 摘要触发(降级不终态) → 问题重写(降级不终态)] → 检索(trace 四节点) →
+ * Prompt 组装 → LLM 流式(trace llm_chat) → content 逐段转发 → 落库 → sources → done。
  *
  * <p>终态成对规则（概设 §3.4，协议级红线）：每条流恰好一个终态语义 + done 收尾——
  * 正常 = sources + done；异常 = 已生成内容先落库，再 error + done。
  * 客户端断开只停外发，服务端链路永远走完：要么完整落库，要么部分落库。
  *
- * <p>阶段 1 单轮无记忆：prompt 只放当前问题；qa_message 全量落库为阶段 2 留数据。
- * Prompt 组装用 resources/prompts/rag-v0.md（详设 §5.1 原文），资料块在代码里编号填充。
+ * <p>多轮编排（DL-14 ①②③）：zhixing.rewrite.enabled=true 时走 messages 数组组装
+ * （system 规则 + 窗口历史 user/assistant 交替 + 末条 user 装资料块与独立问题），
+ * 摘要/重写异常各自降级（摘要维持旧值、重写用原问题），绝不进入 failure 路径；
+ * enabled=false 完整回到阶段 1 行为（单 prompt rag-v0 形态、无记忆、无重写、4 参检索）。
  */
 @Slf4j
 @Service
@@ -58,6 +70,9 @@ public class QaService {
     private static final int TITLE_MAX_LENGTH = 20;
 
     private static final int SNIPPET_MAX_LENGTH = 120;
+
+    /** 摘要单次增量的最大轮数（详设 08-阶段2 §6：只取最早 4 轮做增量，防单次 prompt 过长）。 */
+    private static final int SUMMARIZE_BATCH_TURNS = 4;
 
     private final ChatClient chatClient;
 
@@ -77,7 +92,19 @@ public class QaService {
 
     private final Executor qaPool;
 
+    private final SessionMemory sessionMemory;
+
+    private final Summarizer summarizer;
+
+    private final QueryRewriter queryRewriter;
+
+    private final SummaryProperties summaryProps;
+
+    private final RewriteProperties rewriteProps;
+
     private final String promptTemplate;
+
+    private final String systemTemplate;
 
     public QaService(ChatClient chatClient,
                      RetrievalEngine retrievalEngine,
@@ -87,7 +114,12 @@ public class QaService {
                      RetrieveProperties retrieveProps,
                      QaProperties qaProps,
                      ObjectMapper objectMapper,
-                     @Qualifier("qa-pool") Executor qaPool) {
+                     @Qualifier("qa-pool") Executor qaPool,
+                     SessionMemory sessionMemory,
+                     Summarizer summarizer,
+                     QueryRewriter queryRewriter,
+                     SummaryProperties summaryProps,
+                     RewriteProperties rewriteProps) {
         this.chatClient = chatClient;
         this.retrievalEngine = retrievalEngine;
         this.sessionMapper = sessionMapper;
@@ -97,15 +129,21 @@ public class QaService {
         this.qaProps = qaProps;
         this.objectMapper = objectMapper;
         this.qaPool = qaPool;
-        this.promptTemplate = loadPromptTemplate();
+        this.sessionMemory = sessionMemory;
+        this.summarizer = summarizer;
+        this.queryRewriter = queryRewriter;
+        this.summaryProps = summaryProps;
+        this.rewriteProps = rewriteProps;
+        this.promptTemplate = loadTemplate("prompts/rag-v0.md");
+        this.systemTemplate = loadTemplate("prompts/rag-system-v1.md");
     }
 
-    private static String loadPromptTemplate() {
+    private static String loadTemplate(String path) {
         try {
-            return new String(new ClassPathResource("prompts/rag-v0.md").getInputStream().readAllBytes(),
+            return new String(new ClassPathResource(path).getInputStream().readAllBytes(),
                     StandardCharsets.UTF_8);
         } catch (IOException e) {
-            throw new IllegalStateException("prompts/rag-v0.md 缺失", e);
+            throw new IllegalStateException(path + " 缺失", e);
         }
     }
 
@@ -144,16 +182,31 @@ public class QaService {
         try {
             sink.send("start", new SseStart(runId, userMsgId, ENGINE_WORKFLOW));
 
-            RetrievalResult result = retrievalEngine.retrieve(req.getKbId(), req.getQuestion(),
-                    RetrieveBudget.of(retrieveProps.getVectorTopK(), retrieveProps.getKeywordTopK(),
-                            retrieveProps.getFinalTopK()),
-                    ctx);
+            // ===== 多轮编排（详设-阶段2 §7；rewrite.enabled=false 完整回到阶段 1 行为） =====
+            MemoryView memory = null;
+            RewrittenQuery rewritten;
+            if (rewriteProps.isEnabled()) {
+                memory = sessionMemory.load(sessionId);
+                memory = rollSummaryIfNeeded(sessionId, userMsgId, memory, runId, ctx);
+                rewritten = rewriteIfNeeded(memory, req.getQuestion(), runId, ctx);
+            } else {
+                rewritten = new RewrittenQuery(req.getQuestion(), List.of(), false);
+            }
+
+            RetrieveBudget budget = RetrieveBudget.of(retrieveProps.getVectorTopK(), retrieveProps.getKeywordTopK(),
+                    retrieveProps.getFinalTopK());
+            RetrievalResult result = memory != null
+                    ? retrievalEngine.retrieve(req.getKbId(), rewritten.standaloneQuestion(), rewritten.keywords(), budget, ctx)
+                    : retrievalEngine.retrieve(req.getKbId(), req.getQuestion(), budget, ctx);
             sources = toSourceRefs(result.fused());
 
-            String prompt = buildPrompt(req.getQuestion(), result.fused());
+            List<ChatMessage> messages = memory != null
+                    ? buildMultiTurnMessages(memory, rewritten.standaloneQuestion(), result.fused())
+                    : List.of(ChatMessage.user(buildPrompt(req.getQuestion(), result.fused())));
+
             ChatUsage[] usageHolder = new ChatUsage[1];
-            trace.node(runId, ctx.seq(), "llm_chat", prompt, () -> {
-                chatClient.stream(buildChatRequest(prompt), new StreamCallback() {
+            trace.node(runId, ctx.seq(), "llm_chat", messages, () -> {
+                chatClient.stream(buildChatRequest(messages), new StreamCallback() {
                     @Override
                     public void onContent(String delta) {
                         content.append(delta);
@@ -262,14 +315,89 @@ public class QaService {
                 : "服务内部错误";
     }
 
-    private ChatRequest buildChatRequest(String prompt) {
+    private ChatRequest buildChatRequest(List<ChatMessage> messages) {
         // DL-10 六字段；纯知识库问答零随机：temperature=0.0 + topP=1.0（详设 §5.1）
         return ChatRequest.builder()
-                .messages(List.of(ChatMessage.user(prompt)))
+                .messages(messages)
                 .temperature(0.0)
                 .topP(1.0)
                 .maxTokens(2048)
                 .build();
+    }
+
+    // ===== 多轮编排（详设-阶段2 §6/§7，DL-14 ①②③）=====
+
+    /**
+     * 摘要触发（DL-14 ② 同步）：完成轮数（含窗外）达到阈值时，取窗口外最早 4 轮做增量滚动，
+     * 落库 qa_session(summary_text, summarized_msg_id=本轮 user 消息 id) 并刷新本轮 memory。
+     * 降级不终态（DL-14 ③）：roll 异常只告警并维持旧摘要（trace 已记 FAILED 节点），链路照走。
+     * 节点边界对齐全库约定：trace 只包被点名的操作（roll），落库在节点外、失败不记为摘要失败。
+     */
+    private MemoryView rollSummaryIfNeeded(long sessionId, long userMsgId, MemoryView memory,
+                                           long runId, TraceContext ctx) {
+        try {
+            if (sessionMemory.completedTurns(sessionId) < summaryProps.getTriggerTurns()) {
+                return memory;
+            }
+            List<Turn> older = sessionMemory.turnsBeforeWindow(sessionId);
+            if (older.isEmpty()) {
+                return memory;
+            }
+            List<Turn> batch = older.subList(0, Math.min(SUMMARIZE_BATCH_TURNS * 2, older.size()));
+            String rolled = trace.node(runId, ctx.seq(), "summarize", batch,
+                    () -> summarizer.roll(memory.summary(), batch));
+            saveSummaryQuietly(sessionId, userMsgId, rolled);
+            return new MemoryView(rolled, memory.window());
+        } catch (Exception e) {
+            log.warn("摘要生成失败，维持旧值 sessionId={}: {}", sessionId, e.getMessage());
+            return memory;
+        }
+    }
+
+    /**
+     * 摘要落库兜底（语义对齐 saveAssistantQuietly）：失败只留日志，本轮仍用新摘要——
+     * 触发条件未变，下轮提问会重新滚动，不因一次写库抖动把旧摘要带回链路。
+     */
+    private void saveSummaryQuietly(long sessionId, long userMsgId, String summary) {
+        try {
+            QaSession patch = new QaSession();
+            patch.setId(sessionId);
+            patch.setSummaryText(summary);
+            // 语义：摘要已覆盖到本轮 user 消息之前的全部轮次
+            patch.setSummarizedMsgId(userMsgId);
+            patch.setUpdatedAt(LocalDateTime.now());
+            sessionMapper.updateById(patch);
+        } catch (Exception e) {
+            log.warn("摘要落库失败 sessionId={}（本轮仍用新摘要）: {}", sessionId, e.getMessage());
+        }
+    }
+
+    /** 问题重写：有历史或摘要才调（首轮省一次 LLM 调用）；异常降级为原问题直通（DL-14 ③）。 */
+    private RewrittenQuery rewriteIfNeeded(MemoryView memory, String question, long runId, TraceContext ctx) {
+        if (memory.window().isEmpty() && memory.summary() == null) {
+            return new RewrittenQuery(question, List.of(), false);
+        }
+        try {
+            return trace.node(runId, ctx.seq(), "rewrite", question,
+                    () -> queryRewriter.rewrite(memory.window(), memory.summary(), question));
+        } catch (Exception e) {
+            log.warn("问题重写失败，降级用原问题 sessionId traceRun={}：{}", runId, e.getMessage());
+            return new RewrittenQuery(question, List.of(), false);
+        }
+    }
+
+    /**
+     * 多轮 messages 组装（DL-14 ①）：system 规则（rag-system-v1.md）在首位 + 窗口历史
+     * user/assistant 原样交替 + 末条 user = 资料块 + 空行 + 独立问题（资料块格式沿用阶段 1）。
+     */
+    List<ChatMessage> buildMultiTurnMessages(MemoryView memory, String standaloneQuestion, List<CitedChunk> chunks) {
+        List<ChatMessage> messages = new ArrayList<>();
+        messages.add(ChatMessage.system(systemTemplate));
+        for (Turn turn : memory.window()) {
+            messages.add(new ChatMessage(turn.role(), turn.content()));
+        }
+        messages.add(ChatMessage.user(buildMaterial(chunks) + "\n\n" + standaloneQuestion));
+        return List.copyOf(messages);
     }
 
     // ===== 会话与消息 =====
@@ -342,6 +470,13 @@ public class QaService {
     }
 
     String buildPrompt(String question, List<CitedChunk> chunks) {
+        return promptTemplate
+                .replace("{chunks}", buildMaterial(chunks))
+                .replace("{question}", question);
+    }
+
+    /** 资料块编号拼装（阶段 1 格式：[{i}] （来源：{docName}）\n{content}，空行分隔）。 */
+    private static String buildMaterial(List<CitedChunk> chunks) {
         StringBuilder material = new StringBuilder();
         for (int i = 0; i < chunks.size(); i++) {
             CitedChunk c = chunks.get(i);
@@ -351,9 +486,7 @@ public class QaService {
                 material.append("\n\n");
             }
         }
-        return promptTemplate
-                .replace("{chunks}", material.toString())
-                .replace("{question}", question);
+        return material.toString();
     }
 
     private static String truncate(String text, int max) {
