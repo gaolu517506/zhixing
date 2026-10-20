@@ -3,6 +3,7 @@ package com.zhixing.core.eval;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.zhixing.core.memory.Turn;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -23,11 +24,15 @@ public final class EvalSetSupport {
     private EvalSetSupport() {
     }
 
-    /** 评估集一行：expected_doc_ids 是业务码（doc 级标注稳定，不随分块策略失效）；jsonl 为 snake_case。 */
+    /**
+     * 评估集一行：expected_doc_ids 是业务码（doc 级标注稳定，不随分块策略失效）；jsonl 为 snake_case。
+     * history 非空 = 多轮用例（T2-6）：runner 走真实重写路径（standalone_question + keywords 进检索）。
+     */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record EvalCase(String id, String query,
                            @JsonProperty("expected_doc_ids") List<String> expectedDocIds,
-                           String difficulty, String note) {
+                           String difficulty, String note,
+                           @JsonProperty("history") List<Turn> history) {
     }
 
     /** 单题计算结果（docId 维度指标由调用方解析业务码后填入）。 */

@@ -5,6 +5,9 @@ import com.zhixing.common.ErrorCode;
 import com.zhixing.common.Result;
 import com.zhixing.config.EvalProperties;
 import com.zhixing.config.RetrieveProperties;
+import com.zhixing.core.memory.QueryRewriter;
+import com.zhixing.core.memory.RewrittenQuery;
+import com.zhixing.core.memory.Turn;
 import com.zhixing.core.retrieval.RetrievalEngine;
 import com.zhixing.core.retrieval.RetrievalResult;
 import com.zhixing.core.retrieval.RetrieveBudget;
@@ -40,20 +43,29 @@ public class EvalController {
 
     private final RetrieveProperties retrieveProps;
 
-    public EvalController(RetrievalEngine retrievalEngine, EvalProperties evalProps, RetrieveProperties retrieveProps) {
+    private final QueryRewriter queryRewriter;
+
+    public EvalController(RetrievalEngine retrievalEngine, EvalProperties evalProps,
+                          RetrieveProperties retrieveProps, QueryRewriter queryRewriter) {
         this.retrievalEngine = retrievalEngine;
         this.evalProps = evalProps;
         this.retrieveProps = retrieveProps;
+        this.queryRewriter = queryRewriter;
     }
 
-    /** keywords 为 T2-B 数组 SQL 验证通道：可空（空 = 阶段 1 整句行为）；Engine 按 keyword-channel 开关分流。 */
+    /** history 非空时走真实重写路径（T2-6 多轮评估）：query 即最新问题，重写产物见返回体 rewritten。 */
     public record EvalRetrieveRequest(@NotNull Long kbId, @NotBlank String question, Integer topK,
-                                      List<String> keywords) {
+                                      List<String> keywords, List<Turn> history) {
     }
 
     public record EvalRetrieveView(List<Long> docIds, List<Long> chunkIds,
-                                   Channels channels, long costMs) {
+                                   Channels channels, long costMs,
+                                   Rewritten rewritten) {
         public record Channels(List<Long> vector, List<Long> keyword) {
+        }
+
+        /** history 非空时返回重写产物（观察重写质量）；单轮请求为 null。 */
+        public record Rewritten(String standaloneQuestion, List<String> keywords) {
         }
     }
 
@@ -67,8 +79,19 @@ public class EvalController {
                 ? RetrieveBudget.of(request.topK(), request.topK(), request.topK())
                 : RetrieveBudget.of(retrieveProps.getVectorTopK(), retrieveProps.getKeywordTopK(),
                         retrieveProps.getFinalTopK());
-        RetrievalResult detail = retrievalEngine.retrieve(request.kbId(), request.question(),
-                request.keywords(), budget, null);
+
+        String effectiveQuery = request.question();
+        List<String> effectiveKeywords = request.keywords();
+        EvalRetrieveView.Rewritten rewritten = null;
+        if (request.history() != null && !request.history().isEmpty()) {
+            RewrittenQuery r = queryRewriter.rewrite(request.history(), null, request.question());
+            effectiveQuery = r.standaloneQuestion();
+            effectiveKeywords = r.keywords();
+            rewritten = new EvalRetrieveView.Rewritten(r.standaloneQuestion(), r.keywords());
+        }
+
+        RetrievalResult detail = retrievalEngine.retrieve(request.kbId(), effectiveQuery,
+                effectiveKeywords, budget, null);
         long costMs = System.currentTimeMillis() - start;
         log.info("eval retrieve: kbId={}, question={}, costMs={}", request.kbId(), request.question(), costMs);
 
@@ -78,7 +101,7 @@ public class EvalController {
                 new EvalRetrieveView.Channels(
                         detail.vector().stream().map(c -> c.chunkId()).toList(),
                         detail.keyword().stream().map(c -> c.chunkId()).toList()),
-                costMs));
+                costMs, rewritten));
     }
 
     private void checkKey(String evalKey) {

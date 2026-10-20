@@ -3,6 +3,9 @@ package com.zhixing.core.eval;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.zhixing.config.EvalProperties;
 import com.zhixing.config.RetrieveProperties;
+import com.zhixing.core.memory.QueryRewriter;
+import com.zhixing.core.memory.RewrittenQuery;
+import com.zhixing.core.memory.Turn;
 import com.zhixing.core.retrieval.CitedChunk;
 import com.zhixing.core.retrieval.RetrievalEngine;
 import com.zhixing.core.retrieval.RetrievalResult;
@@ -50,6 +53,9 @@ class EvalRunner {
     @Autowired
     private KbDocumentMapper docMapper;
 
+    @Autowired
+    private QueryRewriter queryRewriter;
+
     @Test
     void runEvaluation() {
         assumeTrue(evalProps.getKbId() > 0, "zhixing.eval.kb-id 未配置，跳过评测");
@@ -60,7 +66,18 @@ class EvalRunner {
                 retrieveProps.getKeywordTopK(), retrieveProps.getFinalTopK());
         List<EvalSetSupport.CaseResult> results = new ArrayList<>(cases.size());
         for (EvalSetSupport.EvalCase evalCase : cases) {
-            RetrievalResult detail = retrievalEngine.retrieve(evalProps.getKbId(), evalCase.query(), budget, null);
+            // 多轮用例（history 非空）走真实重写路径（T2-6）；单轮用例保持 Baseline-1 行为
+            List<Turn> history = evalCase.history() == null ? List.of() : evalCase.history();
+            String query = evalCase.query();
+            List<String> keywords = null;
+            if (!history.isEmpty()) {
+                RewrittenQuery rewritten = queryRewriter.rewrite(history, null, query);
+                query = rewritten.standaloneQuestion();
+                keywords = rewritten.keywords();
+                System.out.printf("[%s] rewritten → %s | keywords=%s%n",
+                        evalCase.id(), query, keywords);
+            }
+            RetrievalResult detail = retrievalEngine.retrieve(evalProps.getKbId(), query, keywords, budget, null);
             List<Long> rankedDocIds = detail.fused().stream().map(CitedChunk::docId).distinct().toList();
             Set<Long> expected = new HashSet<>(evalCase.expectedDocIds().stream()
                     .map(code -> resolveDocId(docIdToCode, code))
