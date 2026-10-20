@@ -50,4 +50,21 @@ public interface RetrievalQueryMapper {
     List<ChunkRow> ilikeTopK(@Param("kbId") long kbId,
                              @Param("query") String query,
                              @Param("topK") int topK);
+
+    /**
+     * trgm 多关键词数组匹配（阶段 2，详设 08-阶段2 §8）：任一关键词命中即入选（OR），
+     * score = GREATEST(各关键词相似度)——多关键词时取最高相似度作为排序依据。
+     * &lt;foreach&gt; 动态生成的是占位符结构而非值，全部参数仍走 #{} 预编译绑定，无注入面。
+     */
+    @Select("<script>SELECT " + COLUMNS + "GREATEST(<foreach collection='keywords' item='kw' separator=', '>"
+            + "similarity(c.content, #{kw})</foreach>) AS score "
+            + "FROM kb_chunk c "
+            + "LEFT JOIN kb_document d ON d.id = c.doc_id "
+            + "WHERE c.kb_id = #{kbId} "
+            + "AND (<foreach collection='keywords' item='kw' separator=' OR '>c.content % #{kw}</foreach>) "
+            + "ORDER BY score DESC "
+            + "LIMIT #{topK}</script>")
+    List<ChunkRow> trgmKeywordsTopK(@Param("kbId") long kbId,
+                                    @Param("keywords") List<String> keywords,
+                                    @Param("topK") int topK);
 }
