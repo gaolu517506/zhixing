@@ -19,6 +19,7 @@ import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -39,6 +40,19 @@ public class KbController {
     public Result<KbCreatedResponse> createKb(@Valid @RequestBody CreateKbRequest request) {
         KbKnowledgeBase kb = kbService.createKb(request.name(), request.description());
         return Result.ok(new KbCreatedResponse(kb.getId()));
+    }
+
+    /** 库列表（前端知识库选择器），创建时间倒序。 */
+    @GetMapping("/kb")
+    public Result<List<KbItemResponse>> listKb() {
+        return Result.ok(kbService.listKb().stream().map(KbItemResponse::of).toList());
+    }
+
+    /** 删库：级联清 chunk/文档/磁盘目录（R1-BE）。 */
+    @DeleteMapping("/kb/{kbId}")
+    public Result<Void> deleteKb(@PathVariable Long kbId) {
+        kbService.deleteKb(kbId);
+        return Result.ok(null);
     }
 
     /** 幂等命中时响应头带 X-Idempotent-Hit: true（详设 §6）。 */
@@ -75,6 +89,13 @@ public class KbController {
     }
 
     public record KbCreatedResponse(Long id) {
+    }
+
+    public record KbItemResponse(Long id, String name, String description, LocalDateTime createdAt) {
+
+        static KbItemResponse of(KbKnowledgeBase kb) {
+            return new KbItemResponse(kb.getId(), kb.getName(), kb.getDescription(), kb.getCreatedAt());
+        }
     }
 
     public record UploadDocumentResponse(Long documentId, String status) {

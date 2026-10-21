@@ -58,4 +58,24 @@ public class LocalFileStorage implements FileStorage {
             throw new UncheckedIOException("文件删除失败：" + path, e);
         }
     }
+
+    @Override
+    public void deleteDocDir(long docId) {
+        Path dir = root.resolve(Long.toString(docId));
+        if (!Files.exists(dir)) {
+            return;
+        }
+        try (java.util.stream.Stream<Path> walk = Files.walk(dir)) {
+            // 逆序删除：先文件后目录
+            walk.sorted(java.util.Comparator.reverseOrder()).forEach(p -> {
+                try {
+                    Files.deleteIfExists(p);
+                } catch (IOException e) {
+                    throw new UncheckedIOException(e);
+                }
+            });
+        } catch (IOException | UncheckedIOException e) {
+            throw new IllegalStateException("文档目录删除失败：" + dir, e);
+        }
+    }
 }

@@ -2,9 +2,11 @@ spring:
   application:
     name: zhixing
   datasource:
-    url: jdbc:postgresql://127.0.0.1:5432/zhixing
-    username: postgres
-    password: postgres
+    # R1-BE 配置外置：PG_URL/PG_USER/PG_PASSWORD 可环境变量覆盖（compose/部署用），
+    # 默认值保持本地零配置可跑
+    url: ${PG_URL:jdbc:postgresql://127.0.0.1:5432/zhixing}
+    username: ${PG_USER:postgres}
+    password: ${PG_PASSWORD:postgres}
     driver-class-name: org.postgresql.Driver
     hikari:
       maximum-pool-size: 10

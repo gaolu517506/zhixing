@@ -144,6 +144,43 @@ public class KbService {
         }
     }
 
+    // ===== v0.1 收尾线新增（R1-BE，只增不改）=====
+
+    /** 库列表：创建时间倒序（前端聊天页知识库选择器）。 */
+    public List<KbKnowledgeBase> listKb() {
+        return kbMapper.selectList(new LambdaQueryWrapper<KbKnowledgeBase>()
+                .orderByDesc(KbKnowledgeBase::getCreatedAt)
+                .orderByDesc(KbKnowledgeBase::getId));
+    }
+
+    /**
+     * 删库：级联 kb_chunk → kb_document → 磁盘文件目录 → kb_knowledge_base，单事务。
+     * 磁盘沿用 {@link #deleteDocument} 的既有语义：失败仅告警不回滚（磁盘不是事务资源），
+     * 孤儿文件可人工清理，DB 行为准。
+     */
+    @Transactional
+    public void deleteKb(Long kbId) {
+        requireKb(kbId);
+        List<KbDocument> docs = docMapper.selectList(new LambdaQueryWrapper<KbDocument>()
+                .eq(KbDocument::getKbId, kbId));
+        for (KbDocument doc : docs) {
+            chunkMapper.deleteByDocId(doc.getId());
+            docMapper.deleteById(doc.getId());
+            // 文件删除与目录递归清理各自兜底：前者失败后者仍执行（递归清理会连带删掉文件）
+            try {
+                fileStorage.delete(doc.getFilePath());
+            } catch (Exception e) {
+                log.warn("文档 {} 磁盘文件删除失败（不回滚）：{}", doc.getId(), doc.getFilePath(), e);
+            }
+            try {
+                fileStorage.deleteDocDir(doc.getId());
+            } catch (Exception e) {
+                log.warn("文档 {} 磁盘目录清理失败（不回滚）：{}", doc.getId(), doc.getId(), e);
+            }
+        }
+        kbMapper.deleteById(kbId);
+    }
+
     /**
      * 分块写入：按 docId 先删后插，单事务。由 IngestionPipeline 在嵌入完成后调用。
      * 开头复查文档仍存在——与删除并发时放弃写入，避免给已删文档留下孤儿 chunk。

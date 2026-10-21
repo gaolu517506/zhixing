@@ -14,4 +14,7 @@ public interface FileStorage {
 
     /** 删除静默容忍不存在；IO 失败抛异常，由调用方决定是否回滚（磁盘不是事务资源，删除失败只告警）。 */
     void delete(String path);
+
+    /** 删除 docId 的整个磁盘目录（删库级联用）；目录不存在时静默返回；IO 失败抛异常由调用方兜底。 */
+    void deleteDocDir(long docId);
 }
