@@ -86,6 +86,11 @@ class IngestionPipelineTest {
         public void delete(String path) {
             files.remove(path);
         }
+
+        @Override
+        public void deleteDocDir(long docId) {
+            files.keySet().removeIf(path -> path.startsWith(docId + "/"));
+        }
     };
 
     private DocumentParser parser;
