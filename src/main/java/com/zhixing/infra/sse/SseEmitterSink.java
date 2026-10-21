@@ -1,4 +1,4 @@
-package com.zhixing.service;
+package com.zhixing.infra.sse;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -6,7 +6,8 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.io.IOException;
 
 /**
- * SseEmitter 的安全包装：客户端断连/超时后 send 会抛，这里吞掉并置位 clientGone，
+ * SseEmitter 的安全包装（infra/sse 实现，配合 {@link SseEventSink} 契约）：
+ * 客户端断连/超时后 send 会抛，这里吞掉并置位 clientGone，
  * 让上层链路"继续生成、继续落库、不再外发"——终态成对规则在服务端永远走完。
  * 生命周期回调（onTimeout/onError）统一在这里注册。
  */

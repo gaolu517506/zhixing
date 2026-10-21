@@ -34,6 +34,7 @@ import com.zhixing.infra.llm.StreamCallback;
 import com.zhixing.infra.llm.dto.ChatRequest;
 import com.zhixing.infra.llm.dto.ChatResponse;
 import com.zhixing.infra.llm.dto.ChatUsage;
+import com.zhixing.infra.sse.SseEventSink;
 import com.zhixing.infra.trace.TraceRecorder;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

@@ -30,6 +30,8 @@ import com.zhixing.infra.llm.StreamCallback;
 import com.zhixing.infra.llm.dto.ChatMessage;
 import com.zhixing.infra.llm.dto.ChatRequest;
 import com.zhixing.infra.llm.dto.ChatUsage;
+import com.zhixing.infra.sse.SseEmitterSink;
+import com.zhixing.infra.sse.SseEventSink;
 import com.zhixing.infra.trace.TraceContext;
 import com.zhixing.infra.trace.TraceRecorder;
 import lombok.extern.slf4j.Slf4j;

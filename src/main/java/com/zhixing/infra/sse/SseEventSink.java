@@ -1,9 +1,11 @@
-package com.zhixing.service;
+package com.zhixing.infra.sse;
 
 import java.io.IOException;
 
 /**
- * SSE 事件出口的最小抽象：QaService 只面向它编排，测试用记录实现断言事件序，
+ * SSE 事件出口的最小抽象（包结构治理：从 service 下沉 infra/sse——HTTP 推流属技术设施，
+ * service/agent 编排层面向本接口，方向符合「上层依赖下层」）。
+ * QaService 只面向它编排，测试用记录实现断言事件序，
  * 生产实现包 SseEmitter（HTTP 语义不进服务层单测）。
  */
 public interface SseEventSink {
