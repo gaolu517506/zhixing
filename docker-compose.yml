@@ -1,0 +1,39 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: zhixing-pg-compose
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: zhixing
+    ports:
+      - "5432:5432"
+    volumes:
+      - zhixing-pg-data:/var/lib/postgresql/data
+      # 首次启动自动建扩展 + 建表（docker-entrypoint-initdb.d 只在数据卷为空时执行）
+      - ./src/main/resources/db/V1__init.sql:/docker-entrypoint-initdb.d/V1__init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d zhixing"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  app:
+    build: .
+    container_name: zhixing-app
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PG_URL: jdbc:postgresql://db:5432/zhixing
+      PG_USER: postgres
+      PG_PASSWORD: postgres
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      ZHIPU_API_KEY: ${ZHIPU_API_KEY:-}
+      # JVM 可选参数（如代理），默认空——不写死
+      JAVA_OPTS: ${JAVA_OPTS:-}
+    ports:
+      - "9090:9090"
+
+volumes:
+  zhixing-pg-data:
