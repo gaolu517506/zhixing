@@ -11,7 +11,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Primary;
 
 /**
  * LLM 客户端装配。各供应商 bean 显式注册而非组件扫描——客户端是"配置的函数"，
@@ -51,7 +50,6 @@ public class LlmClientConfig {
 
     /** yaml 路由：取 primary 的供应商标识直选对应客户端（model 段暂不消费，provider 的 chat-model 即默认）。 */
     @Bean
-    @Primary
     public ChatClient primaryChatClient(LlmProperties props,
                                         DeepSeekChatClient deepSeekChatClient,
                                         ZhipuChatClient zhipuChatClient) {
