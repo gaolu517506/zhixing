@@ -1,12 +1,21 @@
 import { useRef, useState } from "react";
-import { DEFAULT_KB_ID, DEFAULT_KB_NAME } from "../lib/api";
+import { DEFAULT_KB_NAME } from "../lib/api";
 
-/** 底部输入区：Enter 发送、Shift+Enter 换行；流式进行中禁用；知识库选择器（接口缺失，默认库常量）。 */
+export type ChatMode = "rag" | "agent";
+
+/** 底部输入区：模式切换（RAG 问答 / Agent 助手）+ Enter 发送、Shift+Enter 换行 + 停止按钮。 */
 export default function ChatInput({
   streaming,
+  mode,
+  onModeChange,
+  onStop,
   onSend,
 }: {
   streaming: boolean;
+  mode: ChatMode;
+  onModeChange: (mode: ChatMode) => void;
+  /** 仅 Agent 模式提供停止（RAG 后端无取消端点）。 */
+  onStop?: () => void;
   onSend: (question: string) => void;
 }) {
   const [text, setText] = useState("");
@@ -24,7 +33,29 @@ export default function ChatInput({
 
   return (
     <div className="shrink-0 border-t border-slate-200 bg-white p-3">
-      <div className="mb-2 flex items-center gap-2 text-xs text-slate-400">
+      <div className="mb-2 flex items-center gap-3 text-xs text-slate-400">
+        <div className="flex overflow-hidden rounded-md border border-slate-200">
+          {(
+            [
+              { key: "rag", label: "RAG 问答" },
+              { key: "agent", label: "Agent 助手" },
+            ] as const
+          ).map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              disabled={streaming}
+              onClick={() => onModeChange(item.key)}
+              className={`px-3 py-1 transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                mode === item.key
+                  ? "bg-slate-900 text-white"
+                  : "bg-white text-slate-500 hover:bg-slate-50"
+              }`}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
         <span>知识库：</span>
         <select
           disabled
@@ -33,7 +64,6 @@ export default function ChatInput({
         >
           <option>{DEFAULT_KB_NAME}</option>
         </select>
-        <span className="hidden">kbId={DEFAULT_KB_ID}</span>
       </div>
       <div className="flex items-end gap-2">
         <textarea
@@ -50,14 +80,24 @@ export default function ChatInput({
           }}
           className="min-h-[52px] flex-1 resize-none rounded-lg border border-slate-300 px-3 py-2 text-[15px] outline-none focus:border-blue-500"
         />
-        <button
-          type="button"
-          onClick={submit}
-          disabled={streaming || text.trim().length === 0}
-          className="h-10 rounded-lg bg-blue-600 px-5 text-sm text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          {streaming ? "生成中…" : "发送"}
-        </button>
+        {streaming && onStop ? (
+          <button
+            type="button"
+            onClick={onStop}
+            className="h-10 rounded-lg border border-red-300 px-5 text-sm text-red-600 hover:bg-red-50"
+          >
+            ■ 停止
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={submit}
+            disabled={streaming || text.trim().length === 0}
+            className="h-10 rounded-lg bg-blue-600 px-5 text-sm text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {streaming ? "生成中…" : "发送"}
+          </button>
+        )}
       </div>
     </div>
   );

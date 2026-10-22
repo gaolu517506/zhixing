@@ -1,8 +1,9 @@
 import MarkdownMessage from "../components/MarkdownMessage";
 import SourcesPanel from "../components/SourcesPanel";
-import type { Id, SourceRef } from "../lib/types";
+import ToolTimeline from "../components/ToolTimeline";
+import type { AgentTimeline, Id, SourceRef } from "../lib/types";
 
-/** 聊天消息的视图态：后端历史字段 + 流式过程中的 error/streaming 标记。 */
+/** 聊天消息的视图态：后端历史字段 + 流式过程中的 error/streaming 标记 + Agent 时间线。 */
 export interface ChatMessage {
   id?: Id;
   role: "user" | "assistant";
@@ -10,6 +11,9 @@ export interface ChatMessage {
   sources: SourceRef[];
   error?: string;
   streaming?: boolean;
+  stopped?: boolean;
+  /** Agent 回合的工具时间线（历史回放不重放，仅本回合实时渲染后保留）。 */
+  timeline?: AgentTimeline;
 }
 
 /** 单条消息视图：user 右对齐、assistant 左对齐 + markdown + 引用面板 + 错误条。 */
@@ -26,6 +30,9 @@ export default function MessageBubble({ message }: { message: ChatMessage }) {
           <p className="whitespace-pre-wrap text-[15px] leading-relaxed">{message.content}</p>
         ) : (
           <div>
+            {message.timeline && message.timeline.rounds.length > 0 && (
+              <ToolTimeline timeline={message.timeline} active={Boolean(message.streaming)} />
+            )}
             {message.content.length > 0 ? (
               <MarkdownMessage content={message.content} />
             ) : (
@@ -38,6 +45,9 @@ export default function MessageBubble({ message }: { message: ChatMessage }) {
               <div className="mt-2 rounded-md border border-red-200 bg-red-50 px-3 py-1.5 text-sm text-red-600">
                 出错了：{message.error}
               </div>
+            )}
+            {message.stopped && (
+              <div className="mt-2 rounded-md bg-slate-100 px-3 py-1.5 text-sm text-slate-500">已停止</div>
             )}
             {!message.streaming && message.sources.length > 0 && (
               <SourcesPanel sources={message.sources} />

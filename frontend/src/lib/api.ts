@@ -1,6 +1,10 @@
-import { parseResult } from "./json";
-import { feedSse, hasDone } from "./sse";
+import { parseResult, parseJsonPreservingIds } from "./json";
+import { feedSse } from "./sse";
 import type {
+  AgentCancelEvent,
+  AgentConfirmRequest,
+  AgentToolCallEvent,
+  AgentToolResultEvent,
   DocumentItem,
   Id,
   MessageItem,
@@ -16,10 +20,11 @@ import type {
 /**
  * 后端契约注记（已上报 lead）：
  * - GET /api/kb（库列表）后端缺失 → 前端用写死的默认库常量（任务书 §2.1 预案）。
+ *   FE-2 起默认库切到 T3 冒烟库（lead 指定的演示库）。
  * - TraceController 未就绪 → /trace 页用 mock 数据。
  */
-export const DEFAULT_KB_ID: Id = "2110626172473077760"; // 场景包评估库（主工作区 DB 实存）
-export const DEFAULT_KB_NAME = "场景包评估库（默认库 · GET /api/kb 后端缺失）";
+export const DEFAULT_KB_ID: Id = "2113235795004813312"; // T3 冒烟库（lead 指定演示库）
+export const DEFAULT_KB_NAME = "T3 冒烟库（默认库 · GET /api/kb 后端缺失）";
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init);
@@ -69,7 +74,44 @@ export function deleteDocument(id: Id): Promise<void> {
   return request<void>(`/api/documents/${id}`, { method: "DELETE" });
 }
 
-// ===== QA 流式（POST + SSE，核心消费循环）=====
+// ===== SSE 消费循环（QA / Agent 共用；分帧委托 lib/sse.ts）=====
+
+/**
+ * 消费一条 SSE 响应：onEvent 返回 true 表示已消费 done 终态（即刻断流）。
+ * 连接 EOF 却未见 done → onDeadStream 兜底（协议：每流恰好一个终态 + done）。
+ */
+async function consumeSseResponse(
+  response: Response,
+  onEvent: (event: string, data: string) => boolean,
+  onDeadStream: () => void,
+): Promise<void> {
+  if (!response.ok || !response.body) {
+    throw new Error(`流式请求失败：HTTP ${response.status}`);
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder("utf-8");
+  let buffer = "";
+  let sawDone = false;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+    const { events, state } = feedSse(buffer, decoder.decode(value, { stream: true }));
+    buffer = state;
+    for (const { event, data } of events) {
+      if (onEvent(event, data)) {
+        sawDone = true;
+        return;
+      }
+    }
+  }
+  if (!sawDone) {
+    onDeadStream();
+  }
+}
+
+// ===== QA 流式 =====
 
 export interface QaStreamHandlers {
   onStart: (data: QaStart) => void;
@@ -98,59 +140,138 @@ export async function streamQa(
     body: JSON.stringify(request),
     signal,
   });
-  if (!response.ok || !response.body) {
-    throw new Error(`流式请求失败：HTTP ${response.status}`);
-  }
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder("utf-8");
-  let buffer = "";
-  let sawDone = false;
-
-  const dispatch = (event: string, data: string): boolean => {
-    const parsed = (): unknown => JSON.parse(data);
-    switch (event) {
-      case "start":
-        handlers.onStart(parsed() as QaStart);
-        break;
-      case "thinking":
-        handlers.onThinking(parsed() as QaDelta);
-        break;
-      case "content":
-        handlers.onContent(parsed() as QaDelta);
-        break;
-      case "sources":
-        handlers.onSources(parsed() as SourceRef[]);
-        break;
-      case "error":
-        handlers.onError(parsed() as QaError);
-        break;
-      case "done":
-        handlers.onDone(parsed() as QaDone);
-        return true; // 终态：调用方即刻断流
-      default:
-        break; // 协议外事件（如阶段 3 的 tool_call）暂忽略
-    }
-    return false;
-  };
-
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) {
-      break;
-    }
-    const { events, state } = feedSse(buffer, decoder.decode(value, { stream: true }));
-    buffer = state;
-    for (const { event, data } of events) {
-      const isDone = dispatch(event, data);
-      if (isDone || hasDone([{ event, data }])) {
-        sawDone = true;
-        return; // 收到 done 即 close（终止成对规则的消费端）
+  await consumeSseResponse(
+    response,
+    (event, data) => {
+      const parsed = () => parseJsonPreservingIds(data);
+      switch (event) {
+        case "start":
+          handlers.onStart(parsed() as QaStart);
+          break;
+        case "thinking":
+          handlers.onThinking(parsed() as QaDelta);
+          break;
+        case "content":
+          handlers.onContent(parsed() as QaDelta);
+          break;
+        case "sources":
+          handlers.onSources(parsed() as SourceRef[]);
+          break;
+        case "error":
+          handlers.onError(parsed() as QaError);
+          break;
+        case "done":
+          handlers.onDone(parsed() as QaDone);
+          return true;
+        default:
+          break;
       }
-    }
-  }
+      return false;
+    },
+    () => handlers.onProtocolViolation("连接提前断开：未收到 done 终态事件"),
+  );
+}
 
-  if (!sawDone) {
-    handlers.onProtocolViolation("连接提前断开：未收到 done 终态事件");
+// ===== Agent 流式（run / confirm 续跑 / cancel）=====
+
+export interface AgentStreamHandlers {
+  onStart: (data: QaStart) => void;
+  onThinking: (data: QaDelta) => void;
+  onContent: (data: QaDelta) => void;
+  onToolCall: (data: AgentToolCallEvent) => void;
+  onToolResult: (data: AgentToolResultEvent) => void;
+  onConfirmRequest: (data: AgentConfirmRequest) => void;
+  onCancel: (data: AgentCancelEvent) => void;
+  onError: (data: QaError) => void;
+  onDone: (data: QaDone) => void;
+  onProtocolViolation: (message: string) => void;
+}
+
+function dispatchAgentEvent(handlers: AgentStreamHandlers, event: string, data: string): boolean {
+  const parsed = () => parseJsonPreservingIds(data);
+  switch (event) {
+    case "start":
+      handlers.onStart(parsed() as QaStart);
+      break;
+    case "thinking":
+      handlers.onThinking(parsed() as QaDelta);
+      break;
+    case "content":
+      handlers.onContent(parsed() as QaDelta);
+      break;
+    case "tool_call":
+      handlers.onToolCall(parsed() as AgentToolCallEvent);
+      break;
+    case "tool_result":
+      handlers.onToolResult(parsed() as AgentToolResultEvent);
+      break;
+    case "confirm_request":
+      handlers.onConfirmRequest(parsed() as AgentConfirmRequest);
+      break;
+    case "cancel":
+      handlers.onCancel(parsed() as AgentCancelEvent);
+      break;
+    case "error":
+      handlers.onError(parsed() as QaError);
+      break;
+    case "done":
+      handlers.onDone(parsed() as QaDone);
+      return true;
+    default:
+      break; // 协议外事件忽略
   }
+  return false;
+}
+
+/** Agent 流通用消费：run 与 confirm 续跑共用（事件协议一致，续跑流以 start 开场继续推事件）。 */
+async function openAgentStream(
+  url: string,
+  body: unknown,
+  handlers: AgentStreamHandlers,
+  signal: AbortSignal,
+): Promise<void> {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal,
+  });
+  await consumeSseResponse(
+    response,
+    (event, data) => dispatchAgentEvent(handlers, event, data),
+    () => handlers.onProtocolViolation("连接提前断开：未收到 done 终态事件"),
+  );
+}
+
+export function streamAgent(
+  request: { sessionId?: Id | null; kbId: Id; input: string },
+  handlers: AgentStreamHandlers,
+  signal: AbortSignal,
+): Promise<void> {
+  return openAgentStream("/api/agent/run", request, handlers, signal);
+}
+
+/** 确认续跑：approve 执行 pending 工具 / reject 回填拒绝文案，返回续跑 SSE。 */
+export function confirmAgentStream(
+  runId: Id,
+  approved: boolean,
+  handlers: AgentStreamHandlers,
+  signal: AbortSignal,
+): Promise<void> {
+  return openAgentStream(`/api/agent/runs/${runId}/confirm`, { approved }, handlers, signal);
+}
+
+/** 取消（尽力而为）：后端向活动流推 cancel+done，由旧流的消费循环自然收尾。 */
+export async function cancelAgentRun(runId: Id): Promise<void> {
+  try {
+    await request<void>(`/api/agent/runs/${runId}/cancel`, { method: "POST" });
+  } catch {
+    // 取消失败不阻断 UI（流会按自身超时/完成收尾）
+  }
+}
+
+/** 运行列表（时间线回放候选，v0.2 仅保留通道）。 */
+export function listAgentRuns(sessionId?: Id): Promise<unknown[]> {
+  const query = sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : "";
+  return request<unknown[]>(`/api/agent/runs${query}`);
 }

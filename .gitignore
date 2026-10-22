@@ -63,3 +63,4 @@ frontend/dist/
 .video_agent/
 .mimosa/
 tsconfig.tsbuildinfo
+frontend/.vite/

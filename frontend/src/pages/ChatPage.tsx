@@ -1,26 +1,30 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import ChatInput from "../components/ChatInput";
-import MessageBubble, { type ChatMessage } from "../components/MessageBubble";
+import AgentConfirmModal from "../components/AgentConfirmModal";
+import ChatInput, { type ChatMode } from "../components/ChatInput";import MessageList from "../components/MessageList";
 import SessionSidebar from "../components/SessionSidebar";
+import type { ChatMessage } from "../components/MessageBubble";
+import { useAgentRun } from "../hooks/useAgentRun";
 import { DEFAULT_KB_ID, getMessages, getSessions, streamQa } from "../lib/api";
 import type { Id, SessionItem } from "../lib/types";
 
 /**
- * 聊天页（任务书 §2.1）：左侧会话列表 + 消息流 + 底部输入。
- * 流式进行中禁用发送；会话切换/新会话中止进行中的流（AbortController）。
- * 契约缺口（已上报）：SSE 未回传 sessionId——新会话首问完成后取会话列表最新一条补齐，
- * 使后续追问可携带同一 sessionId。
+ * 聊天页：RAG 问答（v0.1 行为不变）+ Agent 模式（工具时间线/确认弹窗/取消）。
+ * 契约缺口（已上报）：两种流都不回传 sessionId——首问完成后取会话列表最新一条补齐。
  */
 export default function ChatPage() {
   const [sessions, setSessions] = useState<SessionItem[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<Id | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [streaming, setStreaming] = useState(false);
-  const abortRef = useRef<AbortController | null>(null);
+  const [ragStreaming, setRagStreaming] = useState(false);
+  const [mode, setMode] = useState<ChatMode>("rag");
   const activeSessionIdRef = useRef<Id | null>(null);
+  activeSessionIdRef.current = activeSessionId;
+  const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  activeSessionIdRef.current = activeSessionId;
+  const agent = useAgentRun();
+  const agentActive = agent.state.phase === "running" || agent.state.phase === "awaiting-confirm";
+  const streaming = mode === "rag" ? ragStreaming : agentActive;
 
   const refreshSessions = useCallback((): void => {
     getSessions().then(setSessions).catch(() => setSessions([]));
@@ -32,18 +36,52 @@ export default function ChatPage() {
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, agent.state.timeline, agent.state.content]);
 
-  const abortCurrent = useCallback((): void => {
+  /** Agent 回合终态：把回答/错误/已停止落成普通消息并复位回合，刷新会话列表。 */
+  useEffect(() => {
+    const phase = agent.state.phase;
+    if (phase !== "finished" && phase !== "stopped" && phase !== "failed") {
+      return;
+    }
+    setMessages((prev) => [
+      ...prev,
+      {
+        role: "assistant",
+        content: agent.state.content,
+        sources: [],
+        error: agent.state.error ?? undefined,
+        stopped: phase === "stopped" || undefined,
+        timeline: agent.state.timeline.rounds.length > 0 ? agent.state.timeline : undefined,
+      },
+    ]);
+    agent.reset();
+    if (activeSessionIdRef.current === null) {
+      getSessions()
+        .then((list) => {
+          if (list.length > 0) {
+            setActiveSessionId(list[0].id);
+          }
+          setSessions(list);
+        })
+        .catch(refreshSessions);
+    } else {
+      refreshSessions();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agent.state.phase]);
+
+  const abortRag = useCallback((): void => {
     abortRef.current?.abort();
     abortRef.current = null;
-    setStreaming(false);
+    setRagStreaming(false);
     setMessages((prev) => prev.map((m) => (m.streaming ? { ...m, streaming: false } : m)));
   }, []);
 
   const handleSelectSession = useCallback(
     (sessionId: Id): void => {
-      abortCurrent();
+      abortRag();
+      agent.abort();
       setActiveSessionId(sessionId);
       getMessages(sessionId)
         .then((items) =>
@@ -58,25 +96,30 @@ export default function ChatPage() {
         )
         .catch(() => setMessages([]));
     },
-    [abortCurrent],
+    [abortRag, agent],
   );
 
   const handleNewSession = useCallback((): void => {
-    abortCurrent();
+    abortRag();
+    agent.abort();
     setActiveSessionId(null);
     setMessages([]);
-  }, [abortCurrent]);
+  }, [abortRag, agent]);
 
   const handleSend = useCallback(
     (question: string): void => {
       if (streaming) {
         return;
       }
-      const userMessage: ChatMessage = { role: "user", content: question, sources: [] };
+      setMessages((prev) => [...prev, { role: "user", content: question, sources: [] }]);
+      if (mode === "agent") {
+        agent.start(question, activeSessionIdRef.current, DEFAULT_KB_ID);
+        return;
+      }
+      // ===== RAG 问答（v0.1 行为不变）=====
       const assistantMessage: ChatMessage = { role: "assistant", content: "", sources: [], streaming: true };
-      setMessages((prev) => [...prev, userMessage, assistantMessage]);
-      setStreaming(true);
-
+      setMessages((prev) => [...prev, assistantMessage]);
+      setRagStreaming(true);
       const controller = new AbortController();
       abortRef.current = controller;
       const patchAssistant = (patch: Partial<ChatMessage>): void => {
@@ -89,7 +132,6 @@ export default function ChatPage() {
           return next;
         });
       };
-
       streamQa(
         { kbId: DEFAULT_KB_ID, sessionId: activeSessionIdRef.current, question },
         {
@@ -109,7 +151,6 @@ export default function ChatPage() {
           onDone: () => {
             patchAssistant({ streaming: false });
             if (activeSessionIdRef.current === null) {
-              // 契约缺口兜底：新会话首问完成后取列表最新会话补齐 id
               getSessions()
                 .then((list) => {
                   if (list.length > 0) {
@@ -128,7 +169,7 @@ export default function ChatPage() {
       )
         .catch((err: unknown) => {
           if (controller.signal.aborted) {
-            return; // 会话切换主动中止：不算错误
+            return;
           }
           patchAssistant({ error: err instanceof Error ? err.message : String(err), streaming: false });
         })
@@ -136,12 +177,22 @@ export default function ChatPage() {
           if (abortRef.current === controller) {
             abortRef.current = null;
           }
-          setStreaming(false);
+          setRagStreaming(false);
           setMessages((prev) => prev.map((m) => (m.streaming ? { ...m, streaming: false } : m)));
         });
     },
-    [streaming, abortCurrent, refreshSessions],
+    [streaming, mode, agent, refreshSessions],
   );
+
+  const agentTurnView =
+    agent.state.phase === "idle"
+      ? null
+      : {
+          content: agent.state.content,
+          timeline: agent.state.timeline,
+          error: agent.state.error,
+          stopped: agent.state.phase === "stopped",
+        };
 
   return (
     <div className="flex h-full">
@@ -152,19 +203,21 @@ export default function ChatPage() {
         onNewSession={handleNewSession}
       />
       <div className="flex min-w-0 flex-1 flex-col">
-        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
-          {messages.length === 0 && (
-            <div className="flex h-full items-center justify-center text-sm text-slate-400">
-              开始新的提问，或从左侧选择历史会话
-            </div>
-          )}
-          {messages.map((message, index) => (
-            <MessageBubble key={message.id ?? `msg-${index}`} message={message} />
-          ))}
-          <div ref={bottomRef} />
-        </div>
-        <ChatInput streaming={streaming} onSend={handleSend} />
+        <MessageList messages={messages} agentTurn={agentTurnView} />
+        <ChatInput
+          streaming={streaming}
+          mode={mode}
+          onModeChange={setMode}
+          onStop={mode === "agent" ? agent.stop : undefined}
+          onSend={handleSend}
+        />
       </div>
+      {agent.state.pendingConfirm && (
+        <AgentConfirmModal
+          request={agent.state.pendingConfirm}
+          onDecide={(approved) => (approved ? agent.approve() : agent.reject())}
+        />
+      )}
     </div>
   );
 }
