@@ -18,4 +18,7 @@ public class AgentProperties {
 
     /** 单工具执行超时（超时以错误结果回填，让模型自纠）。 */
     private long toolTimeoutMs = 30_000;
+
+    /** SSE emitter 超时（与 qa 线同值：Agent 多轮工具执行更长，15 分钟够用）。 */
+    private long emitterTimeoutMs = 900_000L;
 }
