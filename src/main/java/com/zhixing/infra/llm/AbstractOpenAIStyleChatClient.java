@@ -8,6 +8,9 @@ import com.zhixing.infra.llm.dto.ChatMessage;
 import com.zhixing.infra.llm.dto.ChatRequest;
 import com.zhixing.infra.llm.dto.ChatResponse;
 import com.zhixing.infra.llm.dto.ChatUsage;
+import com.zhixing.infra.llm.dto.ToolCall;
+import com.zhixing.infra.llm.dto.ToolDefinition;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
@@ -111,6 +114,7 @@ public abstract class AbstractOpenAIStyleChatClient implements ChatClient {
             BufferedReader reader = new BufferedReader(
                     new InputStreamReader(responseBody.byteStream(), StandardCharsets.UTF_8));
             String line;
+            ToolCallAggregator aggregator = new ToolCallAggregator();
             while ((line = reader.readLine()) != null) {
                 ParsedEvent event = PARSER.parseLine(line);
                 // 容错规则 3（流式版）：流中 error 事件必须当失败，立即终止并回调 onError
@@ -124,6 +128,9 @@ public abstract class AbstractOpenAIStyleChatClient implements ChatClient {
                 }
                 if (event.content() != null) {
                     callback.onContent(event.content());
+                }
+                if (event.toolCallDeltas() != null) {
+                    event.toolCallDeltas().forEach(aggregator::feed);
                 }
                 if (event.reasoning() != null) {
                     callback.onThinking(event.reasoning());
@@ -140,6 +147,10 @@ public abstract class AbstractOpenAIStyleChatClient implements ChatClient {
                 callback.onError(new ModelClientException(ErrorType.INVALID_RESPONSE,
                         provider() + " 流提前结束：未收到 finish_reason/[DONE]"));
             } else {
+                // 阶段 3 契约：finishReason=tool_calls 时先回调聚合结果，再 onComplete 收尾
+                if ("tool_calls".equals(finishReason)) {
+                    callback.onToolCalls(aggregator.snapshot());
+                }
                 callback.onComplete(finishReason, usage);
             }
         } catch (ModelClientException e) {
@@ -168,7 +179,27 @@ public abstract class AbstractOpenAIStyleChatClient implements ChatClient {
         body.put("model", request.getModel() != null ? request.getModel() : defaultModel);
         ArrayNode messages = body.putArray("messages");
         for (ChatMessage message : request.getMessages()) {
-            messages.addObject().put("role", message.role()).put("content", message.content());
+            var node = messages.addObject();
+            node.put("role", message.role());
+            if (message.content() != null) {
+                node.put("content", message.content());
+            }
+            // 阶段 3：assistant 携带 tool_calls（发起的工具调用）
+            if (message.toolCalls() != null && !message.toolCalls().isEmpty()) {
+                var calls = node.putArray("tool_calls");
+                for (ToolCall call : message.toolCalls()) {
+                    var callNode = calls.addObject();
+                    callNode.put("id", call.id());
+                    callNode.put("type", "function");
+                    callNode.putObject("function")
+                            .put("name", call.name())
+                            .put("arguments", call.arguments() != null ? call.arguments() : "{}");
+                }
+            }
+            // 阶段 3：tool 结果消息（与调用 id 配对）
+            if (message.toolCallId() != null) {
+                node.put("tool_call_id", message.toolCallId());
+            }
         }
         body.put("stream", stream);
         if (request.getTemperature() != null) {
@@ -179,6 +210,22 @@ public abstract class AbstractOpenAIStyleChatClient implements ChatClient {
         }
         if (request.getMaxTokens() != null) {
             body.put("max_tokens", request.getMaxTokens());
+        }
+        // 阶段 3：工具声明（Function Calling）
+        if (request.getTools() != null && !request.getTools().isEmpty()) {
+            var tools = body.putArray("tools");
+            for (ToolDefinition tool : request.getTools()) {
+                var toolNode = tools.addObject();
+                toolNode.put("type", "function");
+                var function = toolNode.putObject("function");
+                function.put("name", tool.name());
+                function.put("description", tool.description());
+                try {
+                    function.set("parameters", MAPPER.readTree(tool.parametersSchema()));
+                } catch (JsonProcessingException e) {
+                    throw new IllegalArgumentException("工具 " + tool.name() + " 的 parametersSchema 不是合法 JSON", e);
+                }
+            }
         }
         if (stream && streamIncludeUsage()) {
             body.putObject("stream_options").put("include_usage", true);

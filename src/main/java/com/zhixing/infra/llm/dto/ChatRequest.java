@@ -1,5 +1,7 @@
 package com.zhixing.infra.llm.dto;
 
+import com.zhixing.infra.llm.dto.ToolDefinition;
+
 import lombok.Builder;
 import lombok.Singular;
 import lombok.Value;
@@ -28,4 +30,8 @@ public class ChatRequest {
 
     @Builder.Default
     boolean stream = false;
+
+    /** 工具声明（Function Calling，阶段 3）；null/空 = 不带工具，阶段 1/2 行为不变。 */
+    @Singular
+    List<ToolDefinition> tools;
 }

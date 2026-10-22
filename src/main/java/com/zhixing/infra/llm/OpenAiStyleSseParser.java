@@ -3,10 +3,13 @@ package com.zhixing.infra.llm;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.zhixing.infra.llm.dto.ToolCallDelta;
 import com.zhixing.infra.llm.dto.ChatUsage;
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * OpenAI 协议风格 SSE 流的逐行解析器。
@@ -85,10 +88,28 @@ public class OpenAiStyleSseParser {
         String content = delta.path("content").asText(null);
         String reasoning = delta.path("reasoning_content").asText(null);
         String finishReason = choice.path("finish_reason").asText(null);
-        if (content == null && reasoning == null && finishReason == null && usage == null) {
+
+        // 阶段 3：delta.tool_calls 增量碎片（id/name 首片、arguments 逐片），由聚合器组装
+        List<ToolCallDelta> toolDeltas = null;
+        JsonNode toolCalls = delta.path("tool_calls");
+        if (toolCalls.isArray() && !toolCalls.isEmpty()) {
+            toolDeltas = new ArrayList<>();
+            for (JsonNode tc : toolCalls) {
+                toolDeltas.add(new ToolCallDelta(
+                        tc.path("index").asInt(0),
+                        tc.path("id").asText(null),
+                        tc.path("function").path("name").asText(null),
+                        tc.path("function").path("arguments").asText(null)));
+            }
+        }
+
+        if (content == null && reasoning == null && finishReason == null && usage == null && toolDeltas == null) {
             return ParsedEvent.EMPTY;               // 首 chunk 只有 role、空 delta 等
         }
-        return new ParsedEvent(content, reasoning, finishReason, usage, false, null);
+        if (toolDeltas != null) {
+            return ParsedEvent.ofToolDeltas(toolDeltas);
+        }
+        return new ParsedEvent(content, reasoning, finishReason, usage, false, null, null);
     }
 
     private static String snippet(String text) {

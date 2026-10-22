@@ -38,7 +38,11 @@ zhixing:
       primary: deepseek/deepseek-chat       # 主力（2026-10-19 网络恢复切回；注意 deepseek 侧模型更名，请求 chat 返回 flash，控制台核实后更新模型名）
       fallback: zhipu/glm-4-flash           # 一主一备、跨供应商降级（阶段 4 容错，阶段 1 只用 primary）
       timeout-ms: 60000
-      first-token-timeout-ms: 15000         # 阶段 4 降级用，先配置好
+      first-token-timeout-ms: 15000         # 首包超时（v0.2 ResilientChatDecorator 消费）
+      circuit:
+        failure-threshold: 3                # 连续可降级失败 → 熔断（DL-15 ④）
+        open-seconds: 30
+        half-open-attempts: 1
     embedding:
       provider: zhipu
       dimensions: 1024                      # 必须与 DDL vector(1024) 一致，入库后不可改
@@ -83,3 +87,9 @@ zhixing:
   rewrite:
     enabled: true                           # 问题重写总开关（关闭 = 阶段 1 单轮行为）
     keyword-channel: true                   # 重写关键词数组进检索（D6 对比开关）
+
+  # ===== 阶段 3（ReAct Agent）契约基线配置（详设 13-阶段3 §12） =====
+  agent:
+    max-iterations: 10                      # 最大迭代轮数，耗尽强制无工具作答（DL-15 ②）
+    max-context-chars: 100000               # messages 水位，超限裁剪→LLM 摘要压缩（DL-15 ①）
+    tool-timeout-ms: 30000                  # 单工具执行超时
