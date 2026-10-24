@@ -51,6 +51,22 @@
             <version>${okhttp.version}</version>
         </dependency>
 
+        <!-- MCP Java SDK（T4-B 唯一新增依赖）：版本 2.1.0 为 Maven Central 最新 stable
+             （2.2.0-M1 为里程碑不计；查证 2026-10-24，repo1.maven.org maven-metadata + GitHub releases）。
+             2.x 拆分为 mcp-core（API）+ JSON 绑定模块：默认聚合件绑 Jackson 3，与 Spring Boot 的
+             Jackson 2 同包名冲突（实测 NoClassDefFound），故按官方可插拔搭配选 mcp-json-jackson2
+             （与项目 Jackson 2 同源，零新增冲突）。 -->
+        <dependency>
+            <groupId>io.modelcontextprotocol.sdk</groupId>
+            <artifactId>mcp-core</artifactId>
+            <version>2.1.0</version>
+        </dependency>
+        <dependency>
+            <groupId>io.modelcontextprotocol.sdk</groupId>
+            <artifactId>mcp-json-jackson2</artifactId>
+            <version>2.1.0</version>
+        </dependency>
+
         <!-- 工具：雪花 ID 用 hutool；Tika 是 D6 文档解析用，先引入省一次重启 -->
         <dependency>
             <groupId>cn.hutool</groupId>
