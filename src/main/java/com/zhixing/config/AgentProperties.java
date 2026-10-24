@@ -21,4 +21,20 @@ public class AgentProperties {
 
     /** SSE emitter 超时（与 qa 线同值：Agent 多轮工具执行更长，15 分钟够用）。 */
     private long emitterTimeoutMs = 900_000L;
+
+    /** MCP 工具接入（详设 14-v1.0 §4，DL-17 ③）。默认关闭：无 server 配置时零行为。 */
+    private Mcp mcp = new Mcp();
+
+    @Data
+    public static class Mcp {
+
+        /** MCP 接入开关（关闭 = 不启动子进程、不注册远程工具）。 */
+        private boolean enabled = false;
+
+        /** stdio 启动命令。 */
+        private String command = "node";
+
+        /** 启动参数（空格分隔，如 demo server 脚本路径）。 */
+        private String args = "mcp-server-demo/server.mjs";
+    }
 }

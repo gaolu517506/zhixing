@@ -81,6 +81,9 @@ zhixing:
   # ===== 以下为阶段 2（多轮对话）契约基线配置（详设 08-阶段2 §12） =====
   memory:
     window-size: 8                          # 记忆窗口（完整轮数，作者校准值）
+    long-term:
+      enabled: true                         # 长期记忆：回合级异步仲裁 + 双链路注入（DL-17）
+      max-inject: 20                        # 注入条数上限（超限取最近更新）
   summary:
     trigger-turns: 9                        # 完成轮数达到即同步滚动摘要
     max-chars: 200                          # 摘要上限
@@ -93,3 +96,7 @@ zhixing:
     max-iterations: 10                      # 最大迭代轮数，耗尽强制无工具作答（DL-15 ②）
     max-context-chars: 100000               # messages 水位，超限裁剪→LLM 摘要压缩（DL-15 ①）
     tool-timeout-ms: 30000                  # 单工具执行超时
+    mcp:
+      enabled: false                        # MCP 工具接入（v1.0；无 server 配置时零行为）
+      command: node                         # stdio 启动命令
+      args: mcp-server-demo/server.mjs      # 演示 server 启动参数
