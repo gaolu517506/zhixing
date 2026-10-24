@@ -166,12 +166,23 @@ class QaServiceTest {
                 new RewriteProperties());
     }
 
+    /** 长期记忆门面桩：默认 null 注入块 + no-op 触发（生产实现自身保证不抛）。 */
+    private com.zhixing.core.memory.LongTermMemoryService memoryStub() {
+        return mock(com.zhixing.core.memory.LongTermMemoryService.class);
+    }
+
     private QaService newQaService(TraceProperties traceProps, SessionMemory memory, Summarizer summarizer,
                                    QueryRewriter rewriter, RewriteProperties rewriteProps) {
+        return newQaService(traceProps, memory, summarizer, rewriter, rewriteProps, memoryStub());
+    }
+
+    private QaService newQaService(TraceProperties traceProps, SessionMemory memory, Summarizer summarizer,
+                                   QueryRewriter rewriter, RewriteProperties rewriteProps,
+                                   com.zhixing.core.memory.LongTermMemoryService longTermMemory) {
         return new QaService(fakeChat, retrievalEngine, sessionMapper, messageMapper,
                 new TraceRecorder(traceRunMapper, traceNodeMapper, traceProps),
                 new RetrieveProperties(), new QaProperties(), new ObjectMapper(), Runnable::run,
-                memory, summarizer, rewriter, new SummaryProperties(), rewriteProps);
+                memory, summarizer, rewriter, new SummaryProperties(), rewriteProps, longTermMemory);
     }
 
     private static QaStreamRequest request() {
@@ -289,7 +300,7 @@ class QaServiceTest {
                 new RetrieveProperties(), new QaProperties(), new ObjectMapper(), Runnable::run,
                 new SessionMemory(sessionMapper, messageMapper, new MemoryProperties()),
                 new Summarizer(fakeChat, new SummaryProperties()),
-                new NoopQueryRewriter(), new SummaryProperties(), new RewriteProperties());
+                new NoopQueryRewriter(), new SummaryProperties(), new RewriteProperties(), memoryStub());
 
         service.runQa(request(), 1L, 100L, sink);
 
@@ -457,5 +468,45 @@ class QaServiceTest {
         assertThat(sent.getMessages().get(0).role()).isEqualTo("user");
         assertThat(sent.getMessages().get(0).content()).startsWith("你是知识库问答助手");
         assertThat(sent.getMessages().get(0).content()).contains("【参考资料】").contains(request().getQuestion());
+    }
+
+    // ===== 长期记忆（R-T4 §2.3）=====
+
+    @Test
+    void 有长期记忆注入_多轮分支system后紧跟user偏好块() {
+        com.zhixing.core.memory.LongTermMemoryService longTermMemory =
+                mock(com.zhixing.core.memory.LongTermMemoryService.class);
+        when(longTermMemory.injectionBlock()).thenReturn("【已知用户偏好】\n- 用户偏好深色模式");
+        SessionMemory memory = mock(SessionMemory.class);
+        when(memory.load(1L)).thenReturn(new MemoryView(null, List.of(
+                new Turn("user", "q1"), new Turn("assistant", "a1"))));
+        when(memory.completedTurns(1L)).thenReturn(1);
+        QaService service = newQaService(new TraceProperties(), memory,
+                new Summarizer(fakeChat, new SummaryProperties()), new NoopQueryRewriter(),
+                new RewriteProperties(), longTermMemory);
+
+        service.runQa(request(), 1L, 100L, sink);
+
+        // messages：system → user(偏好块) → user(q1) → assistant(a1) → user(资料+问题)
+        ChatRequest sentReq = fakeChat.lastStreamRequest;
+        assertThat(sentReq.getMessages()).hasSize(5);
+        assertThat(sentReq.getMessages().get(0).role()).isEqualTo("system");
+        assertThat(sentReq.getMessages().get(1).role()).isEqualTo("user");
+        assertThat(sentReq.getMessages().get(1).content()).isEqualTo("【已知用户偏好】\n- 用户偏好深色模式");
+        // 收尾触发：本轮 user 问题与 assistant 回答进入仲裁
+        verify(longTermMemory).arbitrateQuietlyAsync(org.mockito.ArgumentMatchers.eq(1L),
+                org.mockito.ArgumentMatchers.eq(request().getQuestion()),
+                org.mockito.ArgumentMatchers.eq("小米 15 Ultra 搭载6000mAh 电池 [1]。"));
+    }
+
+    @Test
+    void 无长期记忆_qa链路事件序不破且零额外消息() {
+        // setUp 默认 memoryStub()：injectionBlock=null、触发 no-op——回归断言与阶段 2 完全一致
+        qaService.runQa(request(), 1L, 100L, sink);
+
+        assertThat(sink.events).hasSize(5);
+        assertThat(sink.events.get(0)).startsWith("start:");
+        assertThat(sink.events.get(4)).startsWith("done:");
+        assertThat(fakeChat.lastStreamRequest.getMessages()).hasSize(2);   // system + 末条 user（空窗口无历史）
     }
 }
