@@ -11,80 +11,27 @@
     <groupId>com.zhixing</groupId>
     <artifactId>zhixing</artifactId>
     <version>0.0.1-SNAPSHOT</version>
+    <packaging>pom</packaging>
     <name>zhixing</name>
     <description>知行 - 生产级 Agentic RAG 平台</description>
+
+    <modules>
+        <module>zhixing-framework</module>
+        <module>zhixing-llm</module>
+        <module>zhixing-core</module>
+        <module>zhixing-bootstrap</module>
+    </modules>
 
     <properties>
         <java.version>17</java.version>
         <mybatis-plus.version>3.5.17</mybatis-plus.version>
         <okhttp.version>4.12.0</okhttp.version>
         <tika.version>3.2.3</tika.version>
+        <mcp.version>2.1.0</mcp.version>
     </properties>
 
+    <!-- 全模块继承：lombok（编译期）与测试栈 -->
     <dependencies>
-        <!-- Web + 校验 -->
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-web</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-validation</artifactId>
-        </dependency>
-
-        <!-- ORM：Boot3 专用 starter，别拿错成 boot4 -->
-        <dependency>
-            <groupId>com.baomidou</groupId>
-            <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
-            <version>${mybatis-plus.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.postgresql</groupId>
-            <artifactId>postgresql</artifactId>
-            <scope>runtime</scope>
-        </dependency>
-
-        <!-- 模型 HTTP 调用 -->
-        <dependency>
-            <groupId>com.squareup.okhttp3</groupId>
-            <artifactId>okhttp</artifactId>
-            <version>${okhttp.version}</version>
-        </dependency>
-
-        <!-- MCP Java SDK（T4-B 唯一新增依赖）：版本 2.1.0 为 Maven Central 最新 stable
-             （2.2.0-M1 为里程碑不计；查证 2026-10-24，repo1.maven.org maven-metadata + GitHub releases）。
-             2.x 拆分为 mcp-core（API）+ JSON 绑定模块：默认聚合件绑 Jackson 3，与 Spring Boot 的
-             Jackson 2 同包名冲突（实测 NoClassDefFound），故按官方可插拔搭配选 mcp-json-jackson2
-             （与项目 Jackson 2 同源，零新增冲突）。 -->
-        <dependency>
-            <groupId>io.modelcontextprotocol.sdk</groupId>
-            <artifactId>mcp-core</artifactId>
-            <version>2.1.0</version>
-        </dependency>
-        <dependency>
-            <groupId>io.modelcontextprotocol.sdk</groupId>
-            <artifactId>mcp-json-jackson2</artifactId>
-            <version>2.1.0</version>
-        </dependency>
-
-        <!-- 工具：雪花 ID 用 hutool；Tika 是 D6 文档解析用，先引入省一次重启 -->
-        <dependency>
-            <groupId>cn.hutool</groupId>
-            <artifactId>hutool-all</artifactId>
-            <version>5.8.37</version>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.tika</groupId>
-            <artifactId>tika-core</artifactId>
-            <version>${tika.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.tika</groupId>
-            <artifactId>tika-parsers-standard-package</artifactId>
-            <version>${tika.version}</version>
-        </dependency>
-
-        <!-- 工具与测试 -->
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
@@ -99,10 +46,6 @@
 
     <build>
         <plugins>
-            <plugin>
-                <groupId>org.springframework.boot</groupId>
-                <artifactId>spring-boot-maven-plugin</artifactId>
-            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
