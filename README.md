@@ -125,24 +125,20 @@ EVAL_RUN=true ./mvnw test -Dtest=EvalRunner
 
 ## 项目结构
 
+Maven 多模块（依赖方向单向：bootstrap → core → llm → framework），每个包的职责与依赖规则见对应 `package-info.java`——包结构即架构文档。
+
 ```
-com.zhixing
-├── common/            Result 协议、A/B/C 三段错误码、全局异常翻译（不依赖任何业务包）
-├── config/            配置绑定 + OkHttp / 线程池 / Jackson / CORS 装配
-├── controller/        REST / SSE 接入（Kb / Qa / Eval / Trace / Health）+ 异常翻译
-├── service/           用例编排：KbService（建库/上传/级联删除）、QaService（多轮问答编排）
-├── core/
-│   ├── ingest/        入库管线：Tika 解析、五规则分块器、batch 级重试、状态机
-│   ├── retrieval/     检索引擎：双通道并行（降级不终态）、RRF 纯函数、rerank 扩展位
-│   ├── memory/        会话记忆：问题重写、窗口记忆、滚动摘要
-│   └── eval/          评估指标纯函数（Hit@5 / Recall@5 / MRR@10）
-├── infra/
-│   ├── llm/           自研 OpenAI 兼容客户端（模板方法基类 + 纯函数 SSE 解析器）
-│   ├── vector/        pgvector 通道        ├── keyword/   pg_trgm 通道
-│   ├── storage/       本地文件存储          ├── trace/     链路追踪落库
-│   └── sse/           SSE 推流契约与安全实现（断连不停链路）
-├── dao/               MyBatis-Plus entity/mapper（唯一手写 SQL 的层）
-└── frontend/          React 18 + TS + Vite + Tailwind 三页控制台
+zhixing
+├── zhixing-framework   协议（common/Result+错误码）、配置装配（config/）、SSE 推流设施（infra/sse）
+├── zhixing-llm         自研 OpenAI 兼容模型客户端（模板方法基类 + 纯函数 SSE 解析器 + 容错降级）
+├── zhixing-core        核心域引擎与编排
+│   ├── core/           ingest（入库管线）· retrieval（双通道+RRF）· memory（重写/记忆/摘要/长期记忆）
+│   │                   eval（评估纯函数）· agent（ReAct 引擎/工具契约/确认管理）
+│   ├── infra/          vector（pgvector）· keyword（pg_trgm）· storage · trace · mcp（MCP 接入）
+│   ├── dao/            MyBatis-Plus entity/mapper（唯一手写 SQL 的层）
+│   └── service/        用例编排：KbService · QaService · AgentService · agenttools（Agent 工具）
+├── zhixing-bootstrap   Application + controller + application.yaml + prompts + db 脚本（可执行 jar）
+└── frontend/           React 18 + TS + Vite + Tailwind 三页控制台
 ```
 
 每个包的职责与依赖规则见对应 `package-info.java`——包结构即架构文档。
