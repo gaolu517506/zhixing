@@ -74,13 +74,17 @@ public class AgentService {
 
     private final Executor agentPool;
 
+    /** 长期记忆门面（R-T4 §2.3）：system 尾部注入 + 回合收尾异步仲裁；异常自吞。 */
+    private final com.zhixing.core.memory.LongTermMemoryService longTermMemory;
+
     /** 活动运行的取消注册表（runId → cancellation）；进程重启后残留行由 cancel 接口兜底标记。 */
     private final Map<Long, AgentCancellation> active = new ConcurrentHashMap<>();
 
     public AgentService(ReActEngine engine, ConfirmManager confirmManager, ToolRegistry toolRegistry,
                         ToolExecutor toolExecutor, AgentRunMapper runMapper,
                         QaSessionMapper sessionMapper, QaMessageMapper messageMapper,
-                        AgentProperties props, @Qualifier("agent-pool") Executor agentPool) {
+                        AgentProperties props, @Qualifier("agent-pool") Executor agentPool,
+                        com.zhixing.core.memory.LongTermMemoryService longTermMemory) {
         this.engine = engine;
         this.confirmManager = confirmManager;
         this.toolRegistry = toolRegistry;
@@ -90,6 +94,7 @@ public class AgentService {
         this.messageMapper = messageMapper;
         this.props = props;
         this.agentPool = agentPool;
+        this.longTermMemory = longTermMemory;
     }
 
     // ===== 入口一：发起新运行 =====
@@ -111,9 +116,15 @@ public class AgentService {
         runMapper.insert(agentRun);
 
         List<com.zhixing.infra.llm.dto.ChatMessage> messages = new java.util.ArrayList<>();
-        messages.add(com.zhixing.infra.llm.dto.ChatMessage.system(SYSTEM_PROMPT));
+        // 长期记忆注入（R-T4 §2.3，DL-17 ②）：system 消息内容尾部追加同款偏好块
+        String systemPrompt = SYSTEM_PROMPT;
+        String memoryBlock = longTermMemory.injectionBlock();
+        if (memoryBlock != null) {
+            systemPrompt = systemPrompt + "\n\n" + memoryBlock;
+        }
+        messages.add(com.zhixing.infra.llm.dto.ChatMessage.system(systemPrompt));
         messages.add(com.zhixing.infra.llm.dto.ChatMessage.user(req.getInput()));
-        return launch(runId, sessionId, req.getKbId(), messages, 0, userMsgId, "start");
+        return launch(runId, sessionId, req.getKbId(), messages, 0, userMsgId, "start", req.getInput());
     }
 
     // ===== 入口二：确认挂起恢复 =====
@@ -145,7 +156,7 @@ public class AgentService {
         runMapper.resumeFromConfirm(runId);
 
         return launch(runId, suspended.getSessionId(), suspended.getKbId(), messages,
-                iterations, null, "start");
+                iterations, null, "start", suspended.getInput());
     }
 
     // ===== 入口三：取消 =====
@@ -181,7 +192,8 @@ public class AgentService {
 
     private SseEmitter launch(long runId, Long sessionId, Long kbId,
                               List<com.zhixing.infra.llm.dto.ChatMessage> messages,
-                              int startIteration, Long messageIdForStart, String startEvent) {
+                              int startIteration, Long messageIdForStart, String startEvent,
+                              String userInputForMemory) {
         SseEmitter emitter = new SseEmitter(props.getEmitterTimeoutMs());
         SseEventSink sink = new SseEmitterSink(emitter);
         AgentCancellation cancellation = new AgentCancellation();
@@ -195,6 +207,10 @@ public class AgentService {
             try {
                 sink.send(startEvent, new EvStart(runId, messageIdForStart, ENGINE_AGENT));
                 engine.run(ctx, cancellation, sink);
+                // 回合收尾后：长期记忆异步仲裁（R-T4 §2.2；取最后一条 assistant 作为本轮回答，
+                // 挂起/取消等无回答场景由 blank 守卫跳过；response 不等待，异常自吞）
+                longTermMemory.arbitrateQuietlyAsync(sessionId, userInputForMemory,
+                        lastAssistantContent(messages));
             } catch (Exception e) {
                 // engine 内部已兜底所有 Exception；到这里只剩 Error 级意外，补一次终态
                 log.error("Agent 链路意外崩溃 runId={}", runId, e);
@@ -206,6 +222,17 @@ public class AgentService {
             }
         }, agentPool);
         return emitter;
+    }
+
+    /** messages 中最后一条 assistant 消息的 content（无则 null）。 */
+    private static String lastAssistantContent(List<com.zhixing.infra.llm.dto.ChatMessage> messages) {
+        for (int i = messages.size() - 1; i >= 0; i--) {
+            com.zhixing.infra.llm.dto.ChatMessage m = messages.get(i);
+            if ("assistant".equals(m.role())) {
+                return m.content();
+            }
+        }
+        return null;
     }
 
     // ===== 会话与消息（与 QA 共享会话；QaService 私有方法不可复用，按同语义实现）=====

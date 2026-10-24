@@ -108,6 +108,9 @@ public class QaService {
 
     private final String systemTemplate;
 
+    /** 长期记忆门面（R-T4 §2.3）：注入块 + 回合收尾异步仲裁；异常自吞，主链路无感知。 */
+    private final com.zhixing.core.memory.LongTermMemoryService longTermMemory;
+
     public QaService(ChatClient chatClient,
                      RetrievalEngine retrievalEngine,
                      QaSessionMapper sessionMapper,
@@ -121,7 +124,8 @@ public class QaService {
                      Summarizer summarizer,
                      QueryRewriter queryRewriter,
                      SummaryProperties summaryProps,
-                     RewriteProperties rewriteProps) {
+                     RewriteProperties rewriteProps,
+                     com.zhixing.core.memory.LongTermMemoryService longTermMemory) {
         this.chatClient = chatClient;
         this.retrievalEngine = retrievalEngine;
         this.sessionMapper = sessionMapper;
@@ -136,6 +140,7 @@ public class QaService {
         this.queryRewriter = queryRewriter;
         this.summaryProps = summaryProps;
         this.rewriteProps = rewriteProps;
+        this.longTermMemory = longTermMemory;
         this.promptTemplate = loadTemplate("prompts/rag-v0.md");
         this.systemTemplate = loadTemplate("prompts/rag-system-v1.md");
     }
@@ -202,9 +207,13 @@ public class QaService {
                     : retrievalEngine.retrieve(req.getKbId(), req.getQuestion(), budget, ctx);
             sources = toSourceRefs(result.fused());
 
+            // 长期记忆注入（R-T4 §2.3）：多轮分支 system 后追加 user 块；单 prompt 分支追加在模板前部
+            String memoryBlock = longTermMemory.injectionBlock();
             List<ChatMessage> messages = memory != null
-                    ? buildMultiTurnMessages(memory, rewritten.standaloneQuestion(), result.fused())
-                    : List.of(ChatMessage.user(buildPrompt(req.getQuestion(), result.fused())));
+                    ? buildMultiTurnMessages(memory, rewritten.standaloneQuestion(), result.fused(), memoryBlock)
+                    : List.of(ChatMessage.user(
+                            memoryBlock == null ? buildPrompt(req.getQuestion(), result.fused())
+                                    : memoryBlock + "\n\n" + buildPrompt(req.getQuestion(), result.fused())));
 
             ChatUsage[] usageHolder = new ChatUsage[1];
             trace.node(runId, ctx.seq(), "llm_chat", messages, () -> {
@@ -239,6 +248,9 @@ public class QaService {
         }
 
         finish(sessionId, sink, runId, start, content, sources, usage, failure);
+
+        // 回合收尾后：长期记忆异步仲裁（R-T4 §2.2；response 不等待，异常自吞）
+        longTermMemory.arbitrateQuietlyAsync(sessionId, req.getQuestion(), content.toString());
     }
 
     /**
@@ -392,9 +404,14 @@ public class QaService {
      * 多轮 messages 组装（DL-14 ①）：system 规则（rag-system-v1.md）在首位 + 窗口历史
      * user/assistant 原样交替 + 末条 user = 资料块 + 空行 + 独立问题（资料块格式沿用阶段 1）。
      */
-    List<ChatMessage> buildMultiTurnMessages(MemoryView memory, String standaloneQuestion, List<CitedChunk> chunks) {
+    List<ChatMessage> buildMultiTurnMessages(MemoryView memory, String standaloneQuestion,
+                                             List<CitedChunk> chunks, String memoryBlock) {
         List<ChatMessage> messages = new ArrayList<>();
         messages.add(ChatMessage.system(systemTemplate));
+        if (memoryBlock != null) {
+            // 长期记忆注入块紧跟 system（DL-17 ②：QA 与 Agent 双链路同源）
+            messages.add(ChatMessage.user(memoryBlock));
+        }
         for (Turn turn : memory.window()) {
             messages.add(new ChatMessage(turn.role(), turn.content()));
         }
