@@ -64,3 +64,6 @@ frontend/dist/
 .mimosa/
 tsconfig.tsbuildinfo
 frontend/.vite/
+
+# MCP 演示 server 依赖
+mcp-server-demo/node_modules/
