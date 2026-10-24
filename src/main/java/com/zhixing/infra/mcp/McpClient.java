@@ -85,8 +85,9 @@ public class McpClient implements AutoCloseable {
     }
 
     /**
-     * 调用远程工具：content 数组取 text 拼接为结果文本；isError=true 时以
-     * {@link McpToolCallException} 携带原文抛出（适配层转 ToolResult.fail 回填模型）。
+     * 调用远程工具：content 数组取 text 拼接为结果文本；isError=true 是远端工具的业务
+     * 失败结果——以 {@link McpToolCallResult#isError()} 标记原样返回（适配层转
+     * ToolResult.fail 回填模型自纠），不触发重连。
      */
     public synchronized McpToolCallResult callTool(String name, Map<String, Object> arguments) {
         return withReconnect("tools/call", c -> {
