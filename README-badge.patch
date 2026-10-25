@@ -1,0 +1,12 @@
+diff --git a/README.md b/README.md
+index f051551..c8ff4f2 100644
+--- a/README.md
++++ b/README.md
+@@ -1,5 +1,7 @@
+ # 知行 Zhixing
+ 
++[![CI](https://github.com/gl15121004754-hue/zhixing/actions/workflows/ci.yml/badge.svg)](https://github.com/gl15121004754-hue/zhixing/actions/workflows/ci.yml)
++
+ > 知 = 检索增强（RAG），行 = 工具执行（Agent）。取"知行合一"之意：让模型既有据可知，又能动而行。
+ 
+ **知行是一个生产级 Agentic RAG 平台**，面向企业私有知识库场景，提供从文档接入、混合检索到多轮流式问答与 Agent 执行的完整链路。
