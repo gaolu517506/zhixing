@@ -1,0 +1,78 @@
+name: Bug report（缺陷报告）
+description: 报告一个可复现的问题
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈问题。提交前请先检索已有 issue 避免重复；
+        **日志与配置片段务必脱敏（API key / 密码 / 内网地址），泄露的 key 请立即在供应商控制台吊销**。
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: 操作系统
+      options:
+        - macOS
+        - Linux
+        - Windows
+    validations:
+      required: true
+
+  - type: input
+    id: jdk
+    attributes:
+      label: JDK 版本
+      description: "java -version 命令的输出"
+      placeholder: 例如 openjdk 17.0.10
+    validations:
+      required: true
+
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: 部署方式
+      options:
+        - Docker Compose
+        - 本地 ./mvnw + 本机 PostgreSQL
+        - 其他（请在描述中说明）
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 从零开始、按序号列出，能让他人照着走一遍
+      placeholder: |
+        1. …
+        2. …
+        3. …
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志片段（务必脱敏）
+      description: 应用日志 / 浏览器控制台报错，粘贴前删除 API key 等敏感信息
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: 补充信息
+      description: 截图可直接拖入本框；其他有助于定位的信息一并附上
