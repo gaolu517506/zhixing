@@ -7,10 +7,11 @@
 - 📄 **文档知识库**：PDF / Word 等格式一键接入，Tika 解析、智能分块、向量化入库，全程状态机可观测，同库同文件幂等去重
 - 🔍 **混合检索**：pgvector 向量召回 + pg_trgm 关键词召回，RRF 融合、Rerank 扩展位，精确匹配与语义理解两路兼得
 - 💬 **多轮流式问答**：SSE 增量输出，答案带引用溯源；问题重写消解指代（"它充电多少瓦？""那 K80 呢？"不迷路），近 N 轮记忆 + 滚动摘要；知识库无据时明确拒答，不编造
-- 🖥️ **Web 控制台**：聊天 / 知识库管理 / Trace 观测三页，开箱即用
-- 🔌 **多模型接入**：DeepSeek / 智谱 GLM 开箱即用；一套抽象兼容所有 OpenAI 协议供应商，新供应商接入只写一个 20 行子类
+- 🤖 **Agent 执行**：自研 ReAct 引擎（非框架，~400 行核心循环），复合任务自主多轮调用工具；写操作经人工确认后执行（挂起恢复，确认可发生在 SSE 结束任意久之后）；接入 MCP 生态工具（stdio，本地工具重名优先，server 不可用自动降级）
+- 🧠 **长期记忆**：回合级异步仲裁提炼用户偏好（新增 / 更新 / 撤回三态），跨会话自动注入——"记住我喜欢简短回答"说完即生效，下一次会话不用再说
+- 🖥️ **Web 控制台**：聊天（含 Agent 思考过程折叠 / 工具调用时间线 / 确认弹窗）/ 知识库管理 / Trace 观测，开箱即用
+- 🔌 **多模型接入**：DeepSeek / 智谱 GLM 开箱即用；一套抽象兼容所有 OpenAI 协议供应商，新供应商接入只写一个 20 行子类；首包超时检测 + 跨供应商自动降级 + 三态熔断
 - 🛡️ **生产化内建**：统一响应协议与三段式错误码、链路追踪（Trace）落库可查、文档幂等、会话历史全量持久化
-- 🤖 **Agent 执行**（开发中）：自研 ReAct 引擎 + MCP 工具接入 + 写操作人工确认挂起恢复
 
 ## 架构
 
@@ -25,9 +26,18 @@ flowchart LR
     subgraph qa[多轮检索问答 Pipeline]
         Q[用户提问] --> R[问题重写\n指代消解 + 关键词] --> F[混合检索\n向量 + 关键词双通道] --> G[RRF 融合] --> H[Prompt 组装\nsystem + 历史 + 资料] --> J[LLM 流式生成] --> K[SSE 推流\n答案 + 引用溯源]
     end
+    subgraph agent[Agent Pipeline]
+        S[任务输入] --> T[ReAct 循环\n思考 → 选工具 → 观察] --> U{需要工具?}
+        U -- 检索/时间等内置工具 --> V[本地执行] --> T
+        U -- MCP 远程工具 --> W[MCP Server\nstdio] --> T
+        U -- 写操作 --> X[挂起等确认\n全量状态落库] -- 人工批准/拒绝 --> T
+        T --> Y[结构化结果\nSSE 推流]
+    end
+    M[回合结束\n异步记忆仲裁] --> N[("agent_memory\nACTIVE/SUPERSEDED/RETRACTED")] -. 跨会话注入 .-> H
     UI -- REST / SSE --> Q
     UI -- 上传 / 状态轮询 --> A
     E --> F
+    E -. 工具读写 .-> V
 ```
 
 所有节点耗时通过内建 Trace 表落库，Web 控制台可视化查询，检索与生成全链路可观测。
@@ -61,12 +71,15 @@ cd frontend && npm install && npm run dev
 docker run -d --name zhixing-pg -e POSTGRES_PASSWORD=postgres -p 5432:5432 pgvector/pgvector:pg16
 docker exec -i zhixing-pg psql -U postgres -c "CREATE DATABASE zhixing;"
 
-# 2. 建表（自带 CREATE EXTENSION vector / pg_trgm）
-docker exec -i zhixing-pg psql -U postgres -d zhixing < src/main/resources/db/V1__init.sql
+# 2. 建表（V1→V2→V3 按版本顺序执行，自带 CREATE EXTENSION vector / pg_trgm）
+for f in zhixing-bootstrap/src/main/resources/db/V*.sql; do
+  docker exec -i zhixing-pg psql -U postgres -d zhixing < "$f"
+done
 
 # 3. 配置并启动后端
 cp .env.example .env && vim .env && source .env
 ./mvnw spring-boot:run          # 默认连接 127.0.0.1:5432，可用 PG_URL/PG_USER/PG_PASSWORD 覆盖
+# Agent 的 MCP 演示工具（kb_stats/echo）需本机装有 Node.js 20+；启动日志见「注册 2 个远程工具」
 
 # 4. 启动前端（同方式一第 3 步）
 
@@ -80,7 +93,7 @@ curl http://localhost:9090/api/health
 ### 测试
 
 ```bash
-./mvnw test    # 离线单测 95 例：SSE 解析、错误分类、分块、RRF、会话记忆等，不联网
+./mvnw test    # 离线单测 127 例：SSE 解析、错误分类、分块、RRF、ReAct 状态机、MCP 生命周期（需 node）、会话记忆等，不联网
 
 # 冒烟测试（真实调用模型 API，产生少量费用），需先 source .env
 LLM_SMOKE=true ./mvnw test -Dtest='LlmSmokeTest,LlmZhipuPrimarySmokeTest'
@@ -101,6 +114,7 @@ EVAL_RUN=true ./mvnw test -Dtest=EvalRunner
 | 存储 | PostgreSQL 16 + pgvector + pg_trgm | **单库三用**：业务数据 + HNSW 向量索引 + GIN 全文索引，中间件 3 → 1 |
 | 文档解析 | Apache Tika | 一个依赖覆盖 PDF / Word / PPT / HTML |
 | 模型 | DeepSeek（对话主力）+ 智谱 GLM（备选 + embedding-3） | 均 OpenAI 兼容协议，一套抽象全覆盖；一主一备跨供应商降级 |
+| Agent 工具生态 | MCP Java SDK（stdio） | 接入 MCP 生态任意工具 server；远程工具与本地内置工具统一 Tool 契约 |
 | 前端 | React 18 + TypeScript + Vite + Tailwind CSS | 三页控制台；SSE 用 fetch 流式手解析（POST + SSE 不受 EventSource 限制） |
 
 ## 设计亮点
@@ -117,6 +131,17 @@ EVAL_RUN=true ./mvnw test -Dtest=EvalRunner
 - 问题重写消解指代与省略（"它充电多少瓦" → "小米15 Ultra 充电多少瓦"），失败自动降级原问题，链路永不中断
 - 会话记忆 = 近 8 轮完整对话（窗口偶数对齐）+ 滚动摘要（第 9 轮触发，≤200 字），token 预算可控
 - 内置检索质量评测 runner（Hit@5 / Recall@5 / MRR@10），每次调参前后各跑一次，用数字而非感觉驱动优化
+
+**Agent 引擎**（`core/agent/`）
+
+- ReAct 循环状态机三条不变式：消息回填（assistant(toolCalls) 原样入列 + tool 结果按 toolCallId 配对紧随）、写工具挂起恢复（全量状态 JSONB 落库，人工确认可发生在 SSE 结束任意久之后）、连续失败防死循环（达阈值强制收尾并说明原因）
+- Function Calling 流式解析：`delta.tool_calls` 增量碎片按 index 分桶聚合；SSE 事件流上每个终态语义与 done 严格成对，前端零特判
+- 跨供应商容错：首包超时检测、按错误类型过滤候选（不可降级错误不白切）、三态熔断（3 次/30s/半开试探），对上层完全透明
+
+**MCP 接入与长期记忆**（`infra/mcp/` · `core/memory/`）
+
+- MCP 客户端（官方 Java SDK + stdio）：启动重试、指数退避重连、业务错误（isError）与传输错误语义分离不误触发重连；远程工具经 Adapter 适配为本地 Tool 契约，Agent 无感混用，重名本地优先；server 不可用优雅降级，Agent 照常工作
+- 长期记忆三动作仲裁（ADD / SUPERSEDE / RETRACT）在回合结束后异步执行，失败静默绝不阻塞主链路；QA 与 Agent 双链路自动注入【已知用户偏好】——记忆跨会话生效，用户只说一次
 
 **协议与可观测**
 
@@ -147,9 +172,10 @@ zhixing
 
 | 版本 | 交付 |
 |:--|:---|
-| **v0.1**（当前） | RAG 全链路 + 多轮对话 + Web 控制台三页 + Docker Compose 一键部署 |
-| v0.2 | 自研 ReAct Agent（复合任务）、写操作人工确认与挂起恢复、跨供应商容错降级与熔断、Agent 事件前端（thinking / 工具时间线 / 确认弹窗） |
-| v1.0 | MCP 工具接入、简化版长期记忆、单体 → 多模块拆分 |
+| v0.1 ✅ | RAG 全链路 + 多轮对话 + Web 控制台三页 + Docker Compose 一键部署 |
+| v0.2 ✅ | 自研 ReAct Agent（复合任务）、写操作人工确认与挂起恢复、跨供应商容错降级与熔断、Agent 事件前端（thinking / 工具时间线 / 确认弹窗） |
+| **v1.0 ✅（当前）** | MCP 工具接入、简化版长期记忆（跨会话偏好注入）、单体 → 四模块拆分 |
+| v1.1（候选） | Embedding 备胎容错、Agent 并行工具调度、评测集扩充与质量报告 |
 
 ## License
 

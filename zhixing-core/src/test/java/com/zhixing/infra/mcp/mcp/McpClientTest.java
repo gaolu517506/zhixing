@@ -25,6 +25,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 class McpClientTest {
 
     private static final Path FAKE_SERVER =
+            // 相对路径锚定模块目录（surefire 工作目录 = zhixing-core/）；脚本随测试资源同模块存放
             Path.of("src/test/resources/mcp-test/fake-server.mjs").toAbsolutePath();
 
     private McpClient client;
