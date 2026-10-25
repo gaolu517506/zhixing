@@ -16,8 +16,9 @@ class EvalSetSupportResolveTest {
     @Test
     void 仓库根相对路径可向上解析() {
         Path resolved = EvalSetSupport.resolve(Path.of("pom.xml"));
-        // 模块目录与仓库根都有 pom.xml——用仅存在于仓库根的路径验证向上能力
-        Path rootOnly = EvalSetSupport.resolve(Path.of("docs/scenario/eval-set.jsonl"));
+        // 仅存在于仓库根的受控文件（模块目录无副本），验证向上解析能力；
+        // 不用 docs/ 下任何路径——docs 不入库，CI 环境不存在（T5-5 首跑红过的教训）
+        Path rootOnly = EvalSetSupport.resolve(Path.of("LICENSE"));
         assertThat(Files.isReadable(resolved)).isTrue();
         assertThat(Files.isReadable(rootOnly)).isTrue();
     }
