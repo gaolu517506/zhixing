@@ -10,8 +10,10 @@ services:
       - "5432:5432"
     volumes:
       - zhixing-pg-data:/var/lib/postgresql/data
-      # 首次启动自动建扩展 + 建表（docker-entrypoint-initdb.d 只在数据卷为空时执行）
-      - ./zhixing-bootstrap/src/main/resources/db/V1__init.sql:/docker-entrypoint-initdb.d/V1__init.sql:ro
+      # 首次启动自动建扩展 + 建表（docker-entrypoint-initdb.d 只在数据卷为空时执行；按文件名字母序 V1→V2→V3）
+      - ./zhixing-bootstrap/src/main/resources/db/V1__init.sql:/docker-entrypoint-initdb.d/01-V1__init.sql:ro
+      - ./zhixing-bootstrap/src/main/resources/db/V2__agent.sql:/docker-entrypoint-initdb.d/02-V2__agent.sql:ro
+      - ./zhixing-bootstrap/src/main/resources/db/V3__memory.sql:/docker-entrypoint-initdb.d/03-V3__memory.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d zhixing"]
       interval: 5s

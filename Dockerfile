@@ -17,7 +17,7 @@ RUN mvn -q package -DskipTests
 # ===== 运行阶段：仅 JRE，镜像最小化（可执行 jar 在 bootstrap 模块） =====
 FROM eclipse-temurin:17-jre
 WORKDIR /app
-COPY --from=build /build/zhixing-bootstrap/target/zhixing-bootstrap-0.0.1-SNAPSHOT.jar app.jar
+COPY --from=build /build/zhixing-bootstrap/target/zhixing-bootstrap-0.0.1-SNAPSHOT.jar /app.jar
 ENV TZ=Asia/Shanghai
 EXPOSE 9090
 # JAVA_OPTS 可选注入（如 JVM 代理参数 -Dhttp.proxyHost=...），默认空——不写死代理
