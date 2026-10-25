@@ -2,8 +2,10 @@ package com.zhixing.config;
 
 import com.zhixing.infra.llm.ChatClient;
 import com.zhixing.infra.llm.DeepSeekChatClient;
+import com.zhixing.infra.llm.EmbeddingClient;
 import com.zhixing.infra.llm.NoopRerankClient;
 import com.zhixing.infra.llm.RerankClient;
+import com.zhixing.infra.llm.ResilientEmbeddingDecorator;
 import com.zhixing.infra.llm.ZhipuChatClient;
 import com.zhixing.infra.llm.ZhipuEmbeddingClient;
 import okhttp3.OkHttpClient;
@@ -34,12 +36,43 @@ public class LlmClientConfig {
         return new ZhipuChatClient(okHttpClient, p.getBaseUrl(), p.getApiKey(), p.getChatModel());
     }
 
+    /**
+     * embedding 链路装配（v1.1-B T5-2，DL-19）：主 + 可选备胎（请求级切换 + 维度守卫），
+     * 对消费方（IngestionPipeline/RetrievalEngine）零感知。fallback 为空时行为与现状一致。
+     */
     @Bean
-    public ZhipuEmbeddingClient zhipuEmbeddingClient(OkHttpClient okHttpClient, LlmProperties props) {
-        LlmProperties.Provider p = providerOf(props, "zhipu");
+    public EmbeddingClient embeddingClient(OkHttpClient okHttpClient, LlmProperties props) {
         LlmProperties.Embedding embedding = props.getEmbedding();
-        return new ZhipuEmbeddingClient(okHttpClient, p.getBaseUrl(), p.getApiKey(),
-                p.getEmbeddingModel(), embedding.getDimensions(), embedding.getBatchSize());
+        LlmProperties.Provider p = providerOf(props, embedding.getProvider());
+        ZhipuEmbeddingClient primary = new ZhipuEmbeddingClient(okHttpClient, p.getBaseUrl(), p.getApiKey(),
+                p.getEmbeddingModel(), embedding.getDimensions(), embedding.getBatchSize(), embedding.getProvider());
+        String fallbackSpec = embedding.getFallback();
+        if (isBlank(fallbackSpec)) {
+            log.info("[embedding] 未配置备胎，单通道运行（provider={}，dimensions={}）",
+                    embedding.getProvider(), embedding.getDimensions());
+            return new ResilientEmbeddingDecorator(primary, embedding.getDimensions());
+        }
+        EmbeddingFallback fallback = parseFallbackSpec(fallbackSpec);
+        // provider 未配置（缺 baseUrl）：providerOf 启动即炸——配置错误绝不留到调用期（任务书 §3.1 FAIL-FAST）
+        LlmProperties.Provider fp = providerOf(props, fallback.provider());
+        ZhipuEmbeddingClient fallbackClient = new ZhipuEmbeddingClient(okHttpClient, fp.getBaseUrl(), fp.getApiKey(),
+                fallback.model(), embedding.getDimensions(), embedding.getBatchSize(), fallback.provider());
+        log.warn("[embedding] 已启用备胎 {}/{}——主备须同维度模型（当前 {} 维），否则切换后向量语义空间不一致",
+                fallback.provider(), fallback.model(), embedding.getDimensions());
+        return new ResilientEmbeddingDecorator(primary, fallbackClient, embedding.getDimensions());
+    }
+
+    /** 备胎取值 provider/model 二段；model 段可含 /（如 BAAI/bge-m3），按第一个 / 切分。 */
+    record EmbeddingFallback(String provider, String model) {
+    }
+
+    static EmbeddingFallback parseFallbackSpec(String spec) {
+        int slash = spec.indexOf('/');
+        if (slash <= 0 || slash == spec.length() - 1) {
+            throw new IllegalStateException("zhixing.llm.embedding.fallback 配置不合法"
+                    + "（应为 provider/model 二段，如 siliconflow/BAAI/bge-m3）：" + spec);
+        }
+        return new EmbeddingFallback(spec.substring(0, slash), spec.substring(slash + 1));
     }
 
     @Bean

@@ -42,19 +42,28 @@ public class ZhipuEmbeddingClient implements EmbeddingClient {
 
     private final int batchSize;
 
+    private final String providerName;
+
     public ZhipuEmbeddingClient(OkHttpClient httpClient, String baseUrl, String apiKey,
                                 String model, int dimensions, int batchSize) {
+        this(httpClient, baseUrl, apiKey, model, dimensions, batchSize, "zhipu");
+    }
+
+    /** v1.1-B：provider 名参数化——同一 OpenAI 兼容 /embeddings 协议可指到任意托管方（备胎场景）。 */
+    public ZhipuEmbeddingClient(OkHttpClient httpClient, String baseUrl, String apiKey,
+                                String model, int dimensions, int batchSize, String providerName) {
         this.httpClient = httpClient;
         this.baseUrl = baseUrl;
         this.apiKey = apiKey;
         this.model = model;
         this.dimensions = dimensions;
         this.batchSize = batchSize;
+        this.providerName = providerName == null || providerName.isBlank() ? "zhipu" : providerName;
     }
 
     @Override
     public String provider() {
-        return "zhipu";
+        return providerName;
     }
 
     @Override
