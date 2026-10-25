@@ -1,5 +1,7 @@
 # 知行 Zhixing
 
+[![CI](https://github.com/gl15121004754-hue/zhixing/actions/workflows/ci.yml/badge.svg)](https://github.com/gl15121004754-hue/zhixing/actions/workflows/ci.yml)
+
 > 知 = 检索增强（RAG），行 = 工具执行（Agent）。取"知行合一"之意：让模型既有据可知，又能动而行。
 
 **知行是一个生产级 Agentic RAG 平台**，面向企业私有知识库场景，提供从文档接入、混合检索到多轮流式问答与 Agent 执行的完整链路。
@@ -88,7 +90,7 @@ curl http://localhost:9090/api/health
 # {"code":"0","message":"success","data":"zhixing up"}
 ```
 
-数据库连接、模型 Key 均可通过环境变量覆盖（`PG_URL` / `PG_USER` / `PG_PASSWORD` / `DEEPSEEK_API_KEY` / `ZHIPU_API_KEY`）。
+数据库连接、模型 Key 均可通过环境变量覆盖（`PG_URL` / `PG_USER` / `PG_PASSWORD` / `DEEPSEEK_API_KEY` / `ZHIPU_API_KEY`；`SILICONFLOW_API_KEY` 选填，启用 embedding 备胎时需要）。
 
 ### 测试
 
@@ -125,6 +127,7 @@ EVAL_RUN=true ./mvnw test -Dtest=EvalRunner
 - SSE 解析器 `OpenAiStyleSseParser` 设计为**纯函数、无状态、永不抛异常**：LLM 真实流无法复现，但解析逻辑可以离线穷举；前端 `sse.ts` 与之同构（帧状态跨 chunk 保留，粘包/半包有单测锁死）
 - 容错三规则：单行解析失败降级跳过不断流；`finish_reason` / `[DONE]` 双重防御收尾（usage 块不丢、迟到 `[DONE]` 不毁答案）；HTTP 200 携带 error body 必须当失败
 - `ErrorType` 枚举内建 `fallbackCapable` 标志：哪些错误值得切换备用供应商、哪些切了也没用，容错降级直接读属性
+- embedding 备胎（`ResilientEmbeddingDecorator`）：`fallback: siliconflow/BAAI/bge-m3` 一行启用请求级切换——网络失败/5xx/429 自动切备重试一次，401/400 语义错误不白切；**维度守卫**拒绝一切维度不符的向量落库（主备必须同维度模型，启动时 WARN 提示）；默认空配置单通道运行，行为与无装饰器完全一致
 
 **多轮对话**（`core/memory/`）
 
