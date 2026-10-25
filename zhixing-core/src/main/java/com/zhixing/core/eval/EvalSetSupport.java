@@ -41,7 +41,7 @@ public final class EvalSetSupport {
 
     public static List<EvalCase> parse(Path jsonl) {
         try {
-            List<String> lines = Files.readAllLines(jsonl);
+            List<String> lines = Files.readAllLines(resolve(jsonl));
             List<EvalCase> cases = new ArrayList<>(lines.size());
             for (String line : lines) {
                 if (line.isBlank() || line.startsWith("#")) {
@@ -53,6 +53,24 @@ public final class EvalSetSupport {
         } catch (IOException e) {
             throw new IllegalStateException("评估集读取失败: " + jsonl, e);
         }
+    }
+
+    /**
+     * 相对路径锚定：多模块下 surefire 工作目录是模块目录（zhixing-core/），仓库根相对路径
+     * 直接读会断（与 MCP 测试资产同族问题）；从当前目录逐级向上找第一个可读位置，找不到
+     * 则原样返回（让 parse 报出携带原路径的错误）。
+     */
+    static Path resolve(Path configured) {
+        if (configured.isAbsolute() || Files.isReadable(configured)) {
+            return configured;
+        }
+        for (Path dir = Path.of("").toAbsolutePath(); dir != null; dir = dir.getParent()) {
+            Path candidate = dir.resolve(configured);
+            if (Files.isReadable(candidate)) {
+                return candidate;
+            }
+        }
+        return configured;
     }
 
     /** 按 easy/medium/hard 分层（详设 §10.3：hard 掉了先查分块，easy 掉了先查通道）。 */

@@ -103,6 +103,8 @@ LLM_SMOKE=true ./mvnw test -Dtest='LlmSmokeTest,LlmZhipuPrimarySmokeTest'
 # 检索质量评测 runner（Hit@5 / Recall@5 / MRR@10）
 # 注：内置评估集与演示语料暂未随仓库分发（zhixing.eval.set-path 可指向自建评估集）
 EVAL_RUN=true ./mvnw test -Dtest=EvalRunner
+# 当前基线（内部评估集 29 题 × 10 篇语料，小语料集仅作回归参照）：
+# Hit@5 = 1.000（easy/medium/hard 分层均 1.000）· Recall@5 = 0.966 · MRR@10 = 0.891
 ```
 
 切换主力对话供应商**只改一行 yaml**：`zhixing.llm.chat.primary` 从 `deepseek/deepseek-chat` 改为 `zhipu/glm-4-flash`。
@@ -133,7 +135,7 @@ EVAL_RUN=true ./mvnw test -Dtest=EvalRunner
 
 - 问题重写消解指代与省略（"它充电多少瓦" → "小米15 Ultra 充电多少瓦"），失败自动降级原问题，链路永不中断
 - 会话记忆 = 近 8 轮完整对话（窗口偶数对齐）+ 滚动摘要（第 9 轮触发，≤200 字），token 预算可控
-- 内置检索质量评测 runner（Hit@5 / Recall@5 / MRR@10），每次调参前后各跑一次，用数字而非感觉驱动优化
+- 内置检索质量评测 runner（Hit@5 / Recall@5 / MRR@10），每次调参前后各跑一次，用数字而非感觉驱动优化；当前基线见「测试」一节
 
 **Agent 引擎**（`core/agent/`）
 
