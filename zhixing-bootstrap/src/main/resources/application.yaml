@@ -70,7 +70,7 @@ zhixing:
     pool-max: 4
     emitter-timeout-ms: 900000              # SSE 超时 15 分钟
   eval:
-    enabled: true                           # 评测旁路开关（T1-7 baseline 阶段临时开启，收口后关回 false）
+    enabled: false                          # 评测旁路开关（按需开启；T1-7 baseline 已收口，评测时置 true）
     key: local-eval-key                     # X-Eval-Key 比对值（生产环境务必改掉）
     set-path: docs/scenario/eval-set.jsonl  # 评估集路径（EvalRunner 读）
     kb-id: 2110626172473077760              # 评估目标知识库（场景包评估库，ingest-ready 清洗版 10 篇）
@@ -97,6 +97,6 @@ zhixing:
     max-context-chars: 100000               # messages 水位，超限裁剪→LLM 摘要压缩（DL-15 ①）
     tool-timeout-ms: 30000                  # 单工具执行超时
     mcp:
-      enabled: false                        # MCP 工具接入（v1.0；无 server 配置时零行为）
+      enabled: true                         # MCP 工具接入（v1.0；无 server 配置时零行为）
       command: node                         # stdio 启动命令
       args: mcp-server-demo/server.mjs      # 演示 server 启动参数

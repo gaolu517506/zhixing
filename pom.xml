@@ -45,6 +45,20 @@
     </dependencies>
 
     <build>
+        <pluginManagement>
+            <plugins>
+                <!-- 裸 ./mvnw spring-boot:run 会按 reactor 顺序先在聚合根/库模块上执行 run goal
+                     （无主类或残留类导致崩溃），故默认 skip，仅 bootstrap 显式 skip=false 运行 -->
+                <plugin>
+                    <groupId>org.springframework.boot</groupId>
+                    <artifactId>spring-boot-maven-plugin</artifactId>
+                    <configuration>
+                        <skip>true</skip>
+                        <workingDirectory>${maven.multiModuleProjectDirectory}</workingDirectory>
+                    </configuration>
+                </plugin>
+            </plugins>
+        </pluginManagement>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

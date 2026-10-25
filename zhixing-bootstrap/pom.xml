@@ -28,6 +28,14 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <!-- 根 pom pluginManagement 默认 skip=true（防裸命令在库模块上跑 run goal），
+                         唯一可执行模块必须显式打开；repackage 同受此参数控制，须为 false -->
+                    <skip>false</skip>
+                    <!-- 工作目录钉在项目根：相对路径资源（mcp-server-demo、data/files）与
+                         单模块时代行为一致，-pl 单模块启动不漂移 -->
+                    <workingDirectory>${maven.multiModuleProjectDirectory}</workingDirectory>
+                </configuration>
             </plugin>
         </plugins>
     </build>
