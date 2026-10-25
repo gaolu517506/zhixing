@@ -29,7 +29,7 @@ import java.util.List;
 public class MockLlmConfig implements BeanDefinitionRegistryPostProcessor {
 
     private static final String[] REAL_LLM_BEANS = {
-            "deepSeekChatClient", "zhipuChatClient", "primaryChatClient", "zhipuEmbeddingClient"
+            "deepSeekChatClient", "zhipuChatClient", "primaryChatClient", "embeddingClient"
     };
 
     @Override

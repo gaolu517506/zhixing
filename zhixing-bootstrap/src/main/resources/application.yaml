@@ -34,6 +34,10 @@ zhixing:
         api-key: ${ZHIPU_API_KEY:}
         chat-model: glm-4-flash             # 备选/辅助调用（免费档）；模型名以智谱控制台为准
         embedding-model: embedding-3        # dimensions 入参可选 256~2048
+      siliconflow:                          # OpenAI 兼容 /v1/embeddings（embedding 备胎示例供应商，T5-2/DL-19）
+        base-url: https://api.siliconflow.cn/v1
+        api-key: ${SILICONFLOW_API_KEY:}
+        embedding-model: BAAI/bge-m3
     chat:
       primary: deepseek/deepseek-chat       # 主力（2026-10-19 网络恢复切回；注意 deepseek 侧模型更名，请求 chat 返回 flash，控制台核实后更新模型名）
       fallback: zhipu/glm-4-flash           # 一主一备、跨供应商降级（阶段 4 容错，阶段 1 只用 primary）
@@ -45,7 +49,8 @@ zhixing:
         half-open-attempts: 1
     embedding:
       provider: zhipu
-      dimensions: 1024                      # 必须与 DDL vector(1024) 一致，入库后不可改
+      fallback: ""                          # 备胎 provider/model 二段（如 siliconflow/BAAI/bge-m3）；空 = 无备胎单通道
+      dimensions: 1024                      # 必须与 DDL vector(1024) 一致，入库后不可改；主备模型都必须产出同维向量
       batch-size: 16                        # 保守值；客户端超限自动分片
     rerank:
       provider: noop                        # 智谱暂无公开 rerank 端点：NoopClient 截断直通

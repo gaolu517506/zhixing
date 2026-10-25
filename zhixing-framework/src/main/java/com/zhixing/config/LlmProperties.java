@@ -43,6 +43,8 @@ public class LlmProperties {
     @Data
     public static class Embedding {
         private String provider = "zhipu";
+        /** 备胎 provider/model 二段（如 siliconflow/BAAI/bge-m3）；空 = 无备胎（现状单通道）。 */
+        private String fallback = "";
         /** 必须与 DDL 的 vector(1024) 一致，入库后不可改。 */
         private int dimensions = 1024;
         /** 保守值；客户端分片逻辑按此切批。 */
