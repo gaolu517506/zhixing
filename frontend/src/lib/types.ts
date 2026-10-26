@@ -21,9 +21,10 @@ export interface MessageItem {
   content: string;
   engine?: string;
   sources: SourceRef[];
-  promptTokens?: number;
-  completionTokens?: number;
-  costMs?: number;
+  /** 后端 Long→String 序列化策略下实际为字符串，仅展示、不做运算。 */
+  promptTokens?: number | string;
+  completionTokens?: number | string;
+  costMs?: number | string;
   createdAt: string;
 }
 
@@ -31,9 +32,10 @@ export interface DocumentItem {
   id: Id;
   fileName: string;
   fileType: string | null;
-  fileSize: number | null;
   status: DocStatus;
   chunkCount: number | null;
+  /** Long→String 策略下实际为字符串，仅展示。 */
+  fileSize: number | string | null;
   errorMsg: string | null;
   // GET /api/kb/{kbId}/documents 未返回 createdAt（后端契约现状），列表页暂以 chunkCount/状态为主
 }
@@ -74,9 +76,10 @@ export interface QaError {
 }
 export interface QaDone {
   messageId: Id | null;
-  promptTokens: number | null;
-  completionTokens: number | null;
-  costMs: number | null;
+  /** Long→String 策略下实际为字符串，仅展示。 */
+  promptTokens: number | string | null;
+  completionTokens: number | string | null;
+  costMs: number | string | null;
 }
 
 // ===== Agent 事件（概设 §3.4，T3 契约；只消费，字段以 ReActEngine Ev* records 为准）=====

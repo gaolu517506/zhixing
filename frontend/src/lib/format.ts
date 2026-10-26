@@ -10,15 +10,20 @@ export function formatTime(iso: string): string {
     `${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-export function formatBytes(bytes: number | null): string {
+/** Long→String 策略下后端给的是数字字符串，统一在此归一，调用方不做隐式强转。 */
+export function formatBytes(bytes: number | string | null): string {
   if (bytes == null) {
     return "-";
   }
-  if (bytes < 1024) {
-    return `${bytes} B`;
+  const value = Number(bytes);
+  if (Number.isNaN(value)) {
+    return "-";
   }
-  if (bytes < 1024 * 1024) {
-    return `${(bytes / 1024).toFixed(1)} KB`;
+  if (value < 1024) {
+    return `${value} B`;
   }
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  if (value < 1024 * 1024) {
+    return `${(value / 1024).toFixed(1)} KB`;
+  }
+  return `${(value / 1024 / 1024).toFixed(1)} MB`;
 }
