@@ -7,6 +7,7 @@ import type {
   AgentToolResultEvent,
   DocumentItem,
   Id,
+  KbSummary,
   MessageItem,
   QaDelta,
   QaDone,
@@ -15,16 +16,9 @@ import type {
   QaStreamRequest,
   SessionItem,
   SourceRef,
+  TraceRunDetail,
+  TraceRunPage,
 } from "./types";
-
-/**
- * 后端契约注记（已上报 lead）：
- * - GET /api/kb（库列表）后端缺失 → 前端用写死的默认库常量（任务书 §2.1 预案）。
- *   FE-2 起默认库切到 T3 冒烟库（lead 指定的演示库）。
- * - TraceController 未就绪 → /trace 页用 mock 数据。
- */
-export const DEFAULT_KB_ID: Id = "2113235795004813312"; // T3 冒烟库（lead 指定演示库）
-export const DEFAULT_KB_NAME = "T3 冒烟库（默认库 · GET /api/kb 后端缺失）";
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init);
@@ -72,6 +66,20 @@ export function listDocuments(kbId: Id): Promise<DocumentItem[]> {
 
 export function deleteDocument(id: Id): Promise<void> {
   return request<void>(`/api/documents/${id}`, { method: "DELETE" });
+}
+
+export function listKnowledgeBases(): Promise<KbSummary[]> {
+  return request<KbSummary[]>("/api/kb");
+}
+
+// ===== Trace 观测（TraceController，v1.1 接线）=====
+
+export function listTraceRuns(size = 50): Promise<TraceRunPage> {
+  return request<TraceRunPage>(`/api/trace/runs?size=${size}`);
+}
+
+export function getTraceRun(id: Id): Promise<TraceRunDetail> {
+  return request<TraceRunDetail>(`/api/trace/runs/${id}`);
 }
 
 // ===== SSE 消费循环（QA / Agent 共用；分帧委托 lib/sse.ts）=====

@@ -3,14 +3,19 @@ import ConfirmDialog from "../components/ConfirmDialog";
 import DocumentTable from "../components/DocumentTable";
 import Toast, { type ToastItem } from "../components/Toast";
 import UploadZone from "../components/UploadZone";
-import { DEFAULT_KB_ID, DEFAULT_KB_NAME, deleteDocument, listDocuments, uploadDocument } from "../lib/api";
-import { isInFlight, type DocumentItem } from "../lib/types";
+import { deleteDocument, listDocuments, listKnowledgeBases, uploadDocument } from "../lib/api";
+import { isInFlight, type DocumentItem, type Id, type KbSummary } from "../lib/types";
+
+/** 选中库跨页共享（聊天页同键读写）。 */
+const KB_STORAGE_KEY = "zhixing.activeKbId";
 
 /**
- * 知识库页（任务书 §2.2）。库列表接口 GET /api/kb 后端缺失（已上报）→
- * 按任务书预案固定默认库。状态轮询：存在进行中文档时每 2s 拉一次，全部终态自动停。
+ * 知识库页（v1.1 接线 GET /api/kb）：库下拉选择，文档列表/上传/删除跟随所选库。
+ * 状态轮询：存在进行中文档时每 2s 拉一次，全部终态自动停。
  */
 export default function KbPage() {
+  const [kbs, setKbs] = useState<KbSummary[]>([]);
+  const [activeKbId, setActiveKbId] = useState<Id | null>(null);
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<DocumentItem | null>(null);
@@ -24,14 +29,32 @@ export default function KbPage() {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
+  // 库列表加载一次；选中库从 localStorage 恢复，失效（已被删）则回落第一个
+  useEffect(() => {
+    listKnowledgeBases()
+      .then((list) => {
+        setKbs(list);
+        const stored = localStorage.getItem(KB_STORAGE_KEY);
+        const initial = list.find((kb) => kb.id === stored)?.id ?? list[0]?.id ?? null;
+        setActiveKbId(initial);
+        if (initial !== null) {
+          localStorage.setItem(KB_STORAGE_KEY, initial);
+        }
+      })
+      .catch((err: unknown) => setLoadError(err instanceof Error ? err.message : String(err)));
+  }, []);
+
   const reload = useCallback((): void => {
-    listDocuments(DEFAULT_KB_ID)
+    if (activeKbId === null) {
+      return;
+    }
+    listDocuments(activeKbId)
       .then((docs) => {
         setDocuments(docs);
         setLoadError(null);
       })
       .catch((err: unknown) => setLoadError(err instanceof Error ? err.message : String(err)));
-  }, []);
+  }, [activeKbId]);
 
   useEffect(() => {
     reload();
@@ -47,13 +70,18 @@ export default function KbPage() {
     return () => clearTimeout(timer);
   }, [documents, hasInFlight, reload]);
 
+  const handleKbChange = useCallback((kbId: Id): void => {
+    setActiveKbId(kbId);
+    localStorage.setItem(KB_STORAGE_KEY, kbId);
+  }, []);
+
   const handleFile = useCallback(
     (file: File): void => {
-      if (uploading) {
+      if (uploading || activeKbId === null) {
         return;
       }
       setUploading(true);
-      uploadDocument(DEFAULT_KB_ID, file)
+      uploadDocument(activeKbId, file)
         .then((outcome) => {
           pushToast(outcome.idempotent ? "文件已存在（幂等命中）" : `已上传：${file.name}`);
           reload();
@@ -61,7 +89,7 @@ export default function KbPage() {
         .catch((err: unknown) => pushToast(`上传失败：${err instanceof Error ? err.message : String(err)}`))
         .finally(() => setUploading(false));
     },
-    [uploading, pushToast, reload],
+    [uploading, activeKbId, pushToast, reload],
   );
 
   const handleDelete = useCallback((): void => {
@@ -80,23 +108,40 @@ export default function KbPage() {
       });
   }, [pendingDelete, pushToast, reload]);
 
+  const activeKb = kbs.find((kb) => kb.id === activeKbId) ?? null;
+
   return (
     <div className="mx-auto h-full max-w-4xl overflow-y-auto p-6">
       <Toast items={toasts} onExpire={expireToast} />
 
       <div className="mb-4 rounded-lg border border-slate-200 bg-white p-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-base font-semibold text-slate-800">{DEFAULT_KB_NAME}</h2>
-            <p className="mt-0.5 text-xs text-slate-400">kbId: {DEFAULT_KB_ID}</p>
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <select
+              value={activeKbId ?? ""}
+              onChange={(e) => handleKbChange(e.target.value)}
+              className="rounded border border-slate-300 bg-white px-2 py-1 text-sm font-medium text-slate-800 outline-none focus:border-blue-500"
+            >
+              {kbs.map((kb) => (
+                <option key={kb.id} value={kb.id}>
+                  {kb.name}
+                </option>
+              ))}
+            </select>
+            {activeKb && (
+              <p className="min-w-0 truncate text-xs text-slate-400" title={activeKb.description ?? undefined}>
+                {activeKb.description}
+              </p>
+            )}
           </div>
           <span
-            title="GET /api/kb 后端未提供、删除库接口亦未提供——均已上报 lead"
-            className="rounded bg-amber-50 px-2 py-1 text-xs text-amber-600"
+            title="后端暂未提供删除库接口；删除文档不受影响"
+            className="shrink-0 rounded bg-amber-50 px-2 py-1 text-xs text-amber-600"
           >
-            库列表/删除库接口缺失 · 单库预案
+            删除库接口未提供
           </span>
         </div>
+        {activeKbId && <p className="mt-1 text-xs text-slate-400">kbId: {activeKbId}</p>}
       </div>
 
       <div className="mb-4">

@@ -4,8 +4,8 @@ import ChatInput, { type ChatMode } from "../components/ChatInput";import Messag
 import SessionSidebar from "../components/SessionSidebar";
 import type { ChatMessage } from "../components/MessageBubble";
 import { useAgentRun } from "../hooks/useAgentRun";
-import { DEFAULT_KB_ID, getMessages, getSessions, streamQa } from "../lib/api";
-import type { Id, SessionItem } from "../lib/types";
+import { getMessages, getSessions, listKnowledgeBases, streamQa } from "../lib/api";
+import type { Id, KbSummary, SessionItem } from "../lib/types";
 
 /**
  * 聊天页：RAG 问答（v0.1 行为不变）+ Agent 模式（工具时间线/确认弹窗/取消）。
@@ -17,6 +17,8 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [ragStreaming, setRagStreaming] = useState(false);
   const [mode, setMode] = useState<ChatMode>("rag");
+  const [kbs, setKbs] = useState<KbSummary[]>([]);
+  const [activeKbId, setActiveKbId] = useState<Id | null>(null);
   const activeSessionIdRef = useRef<Id | null>(null);
   activeSessionIdRef.current = activeSessionId;
   const abortRef = useRef<AbortController | null>(null);
@@ -33,6 +35,26 @@ export default function ChatPage() {
   useEffect(() => {
     refreshSessions();
   }, [refreshSessions]);
+
+  // 知识库列表（v1.1 接线 GET /api/kb）：选中库与知识库页共享 localStorage 键
+  useEffect(() => {
+    listKnowledgeBases()
+      .then((list) => {
+        setKbs(list);
+        const stored = localStorage.getItem("zhixing.activeKbId");
+        const initial = list.find((kb) => kb.id === stored)?.id ?? list[0]?.id ?? null;
+        setActiveKbId(initial);
+        if (initial !== null) {
+          localStorage.setItem("zhixing.activeKbId", initial);
+        }
+      })
+      .catch(() => setKbs([]));
+  }, []);
+
+  const handleKbChange = useCallback((kbId: Id): void => {
+    setActiveKbId(kbId);
+    localStorage.setItem("zhixing.activeKbId", kbId);
+  }, []);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -108,12 +130,12 @@ export default function ChatPage() {
 
   const handleSend = useCallback(
     (question: string): void => {
-      if (streaming) {
+      if (streaming || activeKbId === null) {
         return;
       }
       setMessages((prev) => [...prev, { role: "user", content: question, sources: [] }]);
       if (mode === "agent") {
-        agent.start(question, activeSessionIdRef.current, DEFAULT_KB_ID);
+        agent.start(question, activeSessionIdRef.current, activeKbId);
         return;
       }
       // ===== RAG 问答（v0.1 行为不变）=====
@@ -133,7 +155,7 @@ export default function ChatPage() {
         });
       };
       streamQa(
-        { kbId: DEFAULT_KB_ID, sessionId: activeSessionIdRef.current, question },
+        { kbId: activeKbId, sessionId: activeSessionIdRef.current, question },
         {
           onStart: () => undefined,
           onThinking: () => undefined,
@@ -181,7 +203,7 @@ export default function ChatPage() {
           setMessages((prev) => prev.map((m) => (m.streaming ? { ...m, streaming: false } : m)));
         });
     },
-    [streaming, mode, agent, refreshSessions],
+    [streaming, mode, activeKbId, agent, refreshSessions],
   );
 
   const agentTurnView =
@@ -207,6 +229,9 @@ export default function ChatPage() {
         <ChatInput
           streaming={streaming}
           mode={mode}
+          kbs={kbs}
+          activeKbId={activeKbId}
+          onKbChange={handleKbChange}
           onModeChange={setMode}
           onStop={mode === "agent" ? agent.stop : undefined}
           onSend={handleSend}

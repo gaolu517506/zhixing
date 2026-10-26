@@ -129,3 +129,44 @@ export interface TimelineRound {
 export interface AgentTimeline {
   rounds: TimelineRound[];
 }
+
+// ===== 知识库 / Trace（v1.1 前端收口：GET /api/kb 与 /api/trace 已就绪的契约）=====
+
+export interface KbSummary {
+  id: Id;
+  name: string;
+  description: string | null;
+}
+
+export interface TraceRunItem {
+  id: Id;
+  bizType: string;
+  bizId: Id | null;
+  status: string;
+  /** 后端 Long→String 序列化策略下实际为字符串（如 "4832"），展示时按需 Number()。 */
+  totalCostMs: number | string | null;
+  errorMsg: string | null;
+  createdAt: string;
+}
+
+export interface TraceNodeItem {
+  name: string;
+  seq: number;
+  costMs: number | string | null;
+  status: string;
+  error: string | null;
+  input: string | null;
+  output: string | null;
+}
+
+export interface TraceRunPage {
+  items: TraceRunItem[];
+  total: number;
+  page: number;
+  size: number;
+}
+
+export interface TraceRunDetail {
+  run: TraceRunItem;
+  nodes: TraceNodeItem[];
+}

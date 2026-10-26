@@ -1,18 +1,24 @@
 import { useRef, useState } from "react";
-import { DEFAULT_KB_NAME } from "../lib/api";
+import type { Id, KbSummary } from "../lib/types";
 
 export type ChatMode = "rag" | "agent";
 
-/** 底部输入区：模式切换（RAG 问答 / Agent 助手）+ Enter 发送、Shift+Enter 换行 + 停止按钮。 */
+/** 底部输入区：模式切换（RAG 问答 / Agent 助手）+ 知识库选择 + Enter 发送、Shift+Enter 换行 + 停止。 */
 export default function ChatInput({
   streaming,
   mode,
+  kbs,
+  activeKbId,
+  onKbChange,
   onModeChange,
   onStop,
   onSend,
 }: {
   streaming: boolean;
   mode: ChatMode;
+  kbs: KbSummary[];
+  activeKbId: Id | null;
+  onKbChange: (kbId: Id) => void;
   onModeChange: (mode: ChatMode) => void;
   /** 仅 Agent 模式提供停止（RAG 后端无取消端点）。 */
   onStop?: () => void;
@@ -58,11 +64,17 @@ export default function ChatInput({
         </div>
         <span>知识库：</span>
         <select
-          disabled
-          title="GET /api/kb 后端未提供（已上报 lead），当前固定使用默认库"
-          className="cursor-not-allowed rounded border border-slate-200 bg-slate-50 px-2 py-1 text-slate-500"
+          value={activeKbId ?? ""}
+          onChange={(e) => onKbChange(e.target.value)}
+          title={activeKbId === null ? "知识库列表加载中" : undefined}
+          className="rounded border border-slate-200 bg-white px-2 py-1 text-slate-600 outline-none focus:border-blue-500"
         >
-          <option>{DEFAULT_KB_NAME}</option>
+          {activeKbId === null && <option value="">加载中…</option>}
+          {kbs.map((kb) => (
+            <option key={kb.id} value={kb.id}>
+              {kb.name}
+            </option>
+          ))}
         </select>
       </div>
       <div className="flex items-end gap-2">
@@ -92,7 +104,7 @@ export default function ChatInput({
           <button
             type="button"
             onClick={submit}
-            disabled={streaming || text.trim().length === 0}
+            disabled={streaming || activeKbId === null || text.trim().length === 0}
             className="h-10 rounded-lg bg-blue-600 px-5 text-sm text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {streaming ? "生成中…" : "发送"}
