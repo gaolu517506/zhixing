@@ -76,6 +76,9 @@ public class AgentService {
     /** 长期记忆门面（R-T4 §2.3）：system 尾部注入 + 回合收尾异步仲裁；异常自吞。 */
     private final com.zhixing.core.memory.LongTermMemoryService longTermMemory;
 
+    /** Trace 埋点（v1.1）：AGENT 链路建 run（钉死与 agent_run 同 id）+ 回合终态回写。 */
+    private final com.zhixing.infra.trace.TraceRecorder trace;
+
     /** 活动运行的取消注册表（runId → cancellation）；进程重启后残留行由 cancel 接口兜底标记。 */
     private final Map<Long, AgentCancellation> active = new ConcurrentHashMap<>();
 
@@ -83,7 +86,8 @@ public class AgentService {
                         ToolExecutor toolExecutor, AgentRunMapper runMapper,
                         QaSessionMapper sessionMapper, QaMessageMapper messageMapper,
                         AgentProperties props, @Qualifier("agent-pool") Executor agentPool,
-                        com.zhixing.core.memory.LongTermMemoryService longTermMemory) {
+                        com.zhixing.core.memory.LongTermMemoryService longTermMemory,
+                        com.zhixing.infra.trace.TraceRecorder trace) {
         this.engine = engine;
         this.confirmManager = confirmManager;
         this.toolRegistry = toolRegistry;
@@ -94,6 +98,7 @@ public class AgentService {
         this.props = props;
         this.agentPool = agentPool;
         this.longTermMemory = longTermMemory;
+        this.trace = trace;
     }
 
     // ===== 入口一：发起新运行 =====
@@ -113,6 +118,8 @@ public class AgentService {
         agentRun.setCreatedAt(LocalDateTime.now());
         agentRun.setUpdatedAt(LocalDateTime.now());
         runMapper.insert(agentRun);
+        // trace run 与 agent_run 同 id 建立（节点埋点以 agent runId 为键，缺行即孤儿——v1.1 修复）
+        trace.startRun("AGENT", sessionId, runId);
 
         List<com.zhixing.infra.llm.dto.ChatMessage> messages = new java.util.ArrayList<>();
         // 长期记忆注入（R-T4 §2.3，DL-17 ②）：system 消息内容尾部追加同款偏好块
@@ -203,15 +210,21 @@ public class AgentService {
 
         AgentRunContext ctx = new AgentRunContext(runId, sessionId, kbId, messages, startIteration);
         CompletableFuture.runAsync(() -> {
+            long startMs = System.currentTimeMillis();
             try {
                 sink.send(startEvent, new EvStart(runId, messageIdForStart, ENGINE_AGENT));
                 engine.run(ctx, cancellation, sink);
+                // trace 终态回写：状态取 agent_run 实际落库值（COMPLETED/FAILED/SUSPENDED/CANCELLED 原样呈现）
+                AgentRun done = runMapper.selectById(runId);
+                trace.finishRun(runId, done == null ? "COMPLETED" : done.getStatus(),
+                        System.currentTimeMillis() - startMs, done == null ? null : done.getErrorMsg());
                 // 回合收尾后：长期记忆异步仲裁（R-T4 §2.2；取最后一条 assistant 作为本轮回答，
                 // 挂起/取消等无回答场景由 blank 守卫跳过；response 不等待，异常自吞）
                 longTermMemory.arbitrateQuietlyAsync(sessionId, userInputForMemory,
                         lastAssistantContent(messages));
             } catch (Exception e) {
                 // engine 内部已兜底所有 Exception；到这里只剩 Error 级意外，补一次终态
+                trace.finishRun(runId, "FAILED", System.currentTimeMillis() - startMs, e.getMessage());
                 log.error("Agent 链路意外崩溃 runId={}", runId, e);
                 sink.trySend("error", new EvError("B0001", "服务内部错误"));
                 sink.trySend("done", new EvDone(null, null, null, null));

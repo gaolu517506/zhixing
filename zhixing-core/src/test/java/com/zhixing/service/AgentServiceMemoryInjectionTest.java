@@ -46,7 +46,8 @@ class AgentServiceMemoryInjectionTest {
         when(sessionMapper.selectById(77L)).thenReturn(existing);
         service = new AgentService(engine, mock(ConfirmManager.class), mock(ToolRegistry.class),
                 mock(ToolExecutor.class), mock(AgentRunMapper.class), sessionMapper,
-                messageMapper, new AgentProperties(), Runnable::run, longTermMemory);
+                messageMapper, new AgentProperties(), Runnable::run, longTermMemory,
+                mock(com.zhixing.infra.trace.TraceRecorder.class));
     }
 
     private AgentRunRequest request() {

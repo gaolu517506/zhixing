@@ -41,11 +41,20 @@ public class TraceRecorder {
 
     /** 开启一个 run，返回 runId（trace 关闭时返回 0）。 */
     public long startRun(String bizType, Long bizId) {
+        return startRun(bizType, bizId, IdUtil.getSnowflakeNextId());
+    }
+
+    /**
+     * 开启一个 run 并钉死 runId（trace 关闭时返回 0）。AGENT 链路专用：约定
+     * trace_run.id == agent_run.id——ReActEngine/ToolExecutor 的节点埋点以 agent runId
+     * 为键，不钉死同 id 则节点成孤儿（v1.1 修复的缺口）。
+     */
+    public long startRun(String bizType, Long bizId, long presetRunId) {
         if (!props.isEnabled()) {
             return 0;
         }
         TraceRun run = new TraceRun();
-        run.setId(IdUtil.getSnowflakeNextId());
+        run.setId(presetRunId);
         run.setBizType(bizType);
         run.setBizId(bizId);
         run.setStatus("RUNNING");
