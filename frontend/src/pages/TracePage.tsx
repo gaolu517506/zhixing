@@ -151,7 +151,7 @@ export default function TracePage() {
                     <div className="h-3 min-w-0 flex-1 rounded bg-slate-100">
                       <div
                         className={`h-3 rounded ${node.status === "FAILED" ? "bg-red-400" : "bg-blue-500"}`}
-                        style={{ width: `${Math.max(2, ((node.costMs ?? 0) / maxCost) * 100)}%` }}
+                        style={{ width: `${Math.max(2, (Number(node.costMs ?? 0) / maxCost) * 100)}%` }}
                       />
                     </div>
                     <span className="w-24 shrink-0 text-right tabular-nums text-slate-500">
