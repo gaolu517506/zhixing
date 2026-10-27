@@ -27,6 +27,10 @@ def clean(text: str) -> str:
             out.append(line)
     return "\n".join(out).strip() + "\n"
 
+if not SRC.is_dir() or not any(SRC.glob("*.md")):
+    # SRC 缺失/为空就静默建空 DST，会让下游把空目录当清洗完成（评审 S11）
+    raise SystemExit(f"错误：源目录 {SRC} 不存在或没有 .md 场景文档，先准备 docs/scenario/docs")
+
 DST.mkdir(parents=True, exist_ok=True)
 for src in sorted(SRC.glob("*.md")):
     (DST / src.name).write_text(clean(src.read_text(encoding="utf-8")), encoding="utf-8")

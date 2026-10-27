@@ -5,7 +5,14 @@ cd "$(dirname "$0")/.."
 
 docker compose up -d db
 printf "等待 db 健康"
+# 健康等待上限 60s：首次拉镜像/初始化慢属正常，但死等会卡死 CI 与新人环境（评审 S11）
+deadline=$((SECONDS + 60))
 until [ "$(docker inspect -f '{{.State.Health.Status}}' zhixing-pg-compose 2>/dev/null)" = "healthy" ]; do
+  if [ "$SECONDS" -ge "$deadline" ]; then
+    echo "" >&2
+    echo "❌ 等待超时（60s）：db 未进入 healthy，排查 docker compose logs db" >&2
+    exit 1
+  fi
   sleep 2
   printf "."
 done
