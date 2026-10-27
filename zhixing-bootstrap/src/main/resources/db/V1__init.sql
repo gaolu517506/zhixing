@@ -80,7 +80,7 @@ CREATE TABLE trace_run (
     id            BIGINT PRIMARY KEY,
     biz_type      VARCHAR(16) NOT NULL,          -- QA / AGENT / INGEST
     biz_id        BIGINT,
-    status        VARCHAR(16) NOT NULL,          -- RUNNING/COMPLETED/FAILED
+    status        VARCHAR(16) NOT NULL,          -- RUNNING/WAITING_CONFIRM/COMPLETED/FAILED/CANCELLED
     total_cost_ms INT,
     error_msg     TEXT,
     created_at    TIMESTAMP NOT NULL DEFAULT now()
