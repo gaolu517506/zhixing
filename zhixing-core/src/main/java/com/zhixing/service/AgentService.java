@@ -129,6 +129,23 @@ public class AgentService {
             systemPrompt = systemPrompt + "\n\n" + memoryBlock;
         }
         messages.add(com.zhixing.infra.llm.dto.ChatMessage.system(systemPrompt));
+        // 会话历史回放（v1.1）：此前 Agent 跨 run 完全失忆——「执行删除」这类续指令在新 run 里
+        // 无从理解（2026-10-26 用户实测暴露）。回放近 8 轮（16 条，与 QA 窗口口径一致），仅取
+        // user/assistant 文本；工具明细留在 agent_run_step/trace，不进上下文。当前输入在发起新
+        // run 前已入库，排除之避免重复。
+        List<QaMessage> history = new java.util.ArrayList<>(messageMapper.selectList(new LambdaQueryWrapper<QaMessage>()
+                .eq(QaMessage::getSessionId, sessionId)
+                .ne(QaMessage::getId, userMsgId)
+                .orderByDesc(QaMessage::getId)
+                .last("LIMIT 16")));
+        java.util.Collections.reverse(history);
+        for (QaMessage m : history) {
+            if ("user".equals(m.getRole())) {
+                messages.add(com.zhixing.infra.llm.dto.ChatMessage.user(m.getContent()));
+            } else if ("assistant".equals(m.getRole())) {
+                messages.add(com.zhixing.infra.llm.dto.ChatMessage.assistant(m.getContent()));
+            }
+        }
         messages.add(com.zhixing.infra.llm.dto.ChatMessage.user(req.getInput()));
         return launch(runId, sessionId, req.getKbId(), messages, 0, userMsgId, "start", req.getInput());
     }
@@ -137,6 +154,12 @@ public class AgentService {
 
     public SseEmitter confirm(long runId, boolean approved) {
         AgentRun suspended = confirmManager.loadResumable(runId);
+        // CAS 抢占先行（P0，全量评审报告 20261027）：写工具的单次执行保证——并发第二个 confirm
+        // 在此被拒。若沿旧顺序「先执行后转状态」，读检查与写转换之间的窗口内写工具会双执行。
+        // 代价：占用后执行若抛意外异常，run 已 RUNNING——故 approve 分支兜底转错误文案，续跑流不中断。
+        if (runMapper.resumeFromConfirm(runId) == 0) {
+            throw new BusinessException(ErrorCode.CLIENT_ERROR, "该确认已被处理，请勿重复提交");
+        }
         List<com.zhixing.infra.llm.dto.ChatMessage> messages =
                 confirmManager.deserializeMessages(suspended.getMessagesSnapshot());
         PendingToolCall pending = confirmManager.deserializePendingTool(suspended.getPendingTool());
@@ -153,13 +176,17 @@ public class AgentService {
                 // approve：ToolExecutor 正常路径执行 pending；对象存在性由工具实现自校验
                 //（挂起期间对象可能被删，工具返回 fail 即错误结果回填，模型自纠，不终态）
                 ToolCall call = new ToolCall(pending.toolCallId(), pending.name(), pending.arguments());
-                resultContent = toolExecutor.execute(tool, call, runId,
-                        new TraceContext(runId, new AtomicInteger()), iterations).content();
+                try {
+                    resultContent = toolExecutor.execute(tool, call, runId,
+                            new TraceContext(runId, new AtomicInteger()), iterations).content();
+                } catch (Exception e) {
+                    // 恢复名额已被 CAS 占用：异常也必须回填结果让续跑流完整（fail 文案哲学同上）
+                    resultContent = "工具执行异常：" + e.getMessage() + "。请向用户说明情况。";
+                }
             }
         }
-        // 结果（或拒绝文案）按 toolCallId 配对补写，状态回 RUNNING 并清 pending
+        // 结果（或拒绝文案）按 toolCallId 配对补写（状态与 pending 清理已在 CAS 步完成）
         messages.add(com.zhixing.infra.llm.dto.ChatMessage.toolResult(pending.toolCallId(), resultContent));
-        runMapper.resumeFromConfirm(runId);
 
         return launch(runId, suspended.getSessionId(), suspended.getKbId(), messages,
                 iterations, null, "start", suspended.getInput());
