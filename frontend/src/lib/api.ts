@@ -72,6 +72,10 @@ export function listKnowledgeBases(): Promise<KbSummary[]> {
   return request<KbSummary[]>("/api/kb");
 }
 
+export function deleteKnowledgeBase(kbId: Id): Promise<void> {
+  return request<void>(`/api/kb/${kbId}`, { method: "DELETE" });
+}
+
 // ===== Trace 观测（TraceController，v1.1 接线）=====
 
 export function listTraceRuns(size = 50): Promise<TraceRunPage> {

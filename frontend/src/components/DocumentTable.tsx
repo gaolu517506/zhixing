@@ -2,7 +2,7 @@ import StatusBadge from "./StatusBadge";
 import { formatBytes } from "../lib/format";
 import type { DocumentItem } from "../lib/types";
 
-/** 文档表：文件名、状态 badge（进行中蓝-旋转/完成绿/失败红+tooltip）、chunk 数。 */
+/** 文档表：文件名、状态 badge（进行中蓝-旋转/完成绿/失败红+tooltip）、chunk 数、大小、创建时间。 */
 export default function DocumentTable({
   documents,
   onDelete,
@@ -21,6 +21,7 @@ export default function DocumentTable({
           <th className="py-2 font-medium">状态</th>
           <th className="py-2 text-right font-medium">Chunks</th>
           <th className="py-2 text-right font-medium">大小</th>
+          <th className="py-2 text-right font-medium">创建时间</th>
           <th className="w-16 py-2" />
         </tr>
       </thead>
@@ -38,6 +39,9 @@ export default function DocumentTable({
             </td>
             <td className="py-2 text-right tabular-nums">{doc.chunkCount ?? "-"}</td>
             <td className="py-2 text-right tabular-nums text-slate-500">{formatBytes(doc.fileSize)}</td>
+            <td className="py-2 text-right tabular-nums text-slate-500" title={doc.createdAt ?? undefined}>
+              {doc.createdAt ? doc.createdAt.slice(0, 10) : "-"}
+            </td>
             <td className="py-2 text-right">
               <button
                 type="button"

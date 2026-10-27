@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import ConfirmDialog from "../components/ConfirmDialog";
 import DocumentTable from "../components/DocumentTable";
+import KbHeader from "../components/KbHeader";
 import Toast, { type ToastItem } from "../components/Toast";
 import UploadZone from "../components/UploadZone";
-import { deleteDocument, listDocuments, listKnowledgeBases, uploadDocument } from "../lib/api";
+import { deleteDocument, deleteKnowledgeBase, listDocuments, listKnowledgeBases, uploadDocument } from "../lib/api";
 import { isInFlight, type DocumentItem, type Id, type KbSummary } from "../lib/types";
 
 /** 选中库跨页共享（聊天页同键读写）。 */
@@ -19,6 +20,7 @@ export default function KbPage() {
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<DocumentItem | null>(null);
+  const [pendingKbDelete, setPendingKbDelete] = useState<KbSummary | null>(null);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [uploading, setUploading] = useState(false);
 
@@ -110,39 +112,43 @@ export default function KbPage() {
 
   const activeKb = kbs.find((kb) => kb.id === activeKbId) ?? null;
 
+  const handleKbDelete = useCallback((): void => {
+    if (!pendingKbDelete) {
+      return;
+    }
+    deleteKnowledgeBase(pendingKbDelete.id)
+      .then(() => {
+        pushToast(`已删除知识库：${pendingKbDelete.name}`);
+        setPendingKbDelete(null);
+        const rest = kbs.filter((kb) => kb.id !== pendingKbDelete.id);
+        setKbs(rest);
+        const next = rest[0]?.id ?? null;
+        setActiveKbId(next);
+        if (next !== null) {
+          localStorage.setItem(KB_STORAGE_KEY, next);
+        } else {
+          // 库清空：选中键一并清除（聊天页同键，避免指向已删库），文档列表清空
+          localStorage.removeItem(KB_STORAGE_KEY);
+          setDocuments([]);
+        }
+      })
+      .catch((err: unknown) => {
+        pushToast(`删除失败：${err instanceof Error ? err.message : String(err)}`);
+        setPendingKbDelete(null);
+      });
+  }, [pendingKbDelete, kbs, pushToast]);
+
   return (
     <div className="mx-auto h-full max-w-4xl overflow-y-auto p-6">
       <Toast items={toasts} onExpire={expireToast} />
 
-      <div className="mb-4 rounded-lg border border-slate-200 bg-white p-4">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-3">
-            <select
-              value={activeKbId ?? ""}
-              onChange={(e) => handleKbChange(e.target.value)}
-              className="rounded border border-slate-300 bg-white px-2 py-1 text-sm font-medium text-slate-800 outline-none focus:border-blue-500"
-            >
-              {kbs.map((kb) => (
-                <option key={kb.id} value={kb.id}>
-                  {kb.name}
-                </option>
-              ))}
-            </select>
-            {activeKb && (
-              <p className="min-w-0 truncate text-xs text-slate-400" title={activeKb.description ?? undefined}>
-                {activeKb.description}
-              </p>
-            )}
-          </div>
-          <span
-            title="后端暂未提供删除库接口；删除文档不受影响"
-            className="shrink-0 rounded bg-amber-50 px-2 py-1 text-xs text-amber-600"
-          >
-            删除库接口未提供
-          </span>
-        </div>
-        {activeKbId && <p className="mt-1 text-xs text-slate-400">kbId: {activeKbId}</p>}
-      </div>
+      <KbHeader
+        kbs={kbs}
+        activeKbId={activeKbId}
+        activeKb={activeKb}
+        onKbChange={handleKbChange}
+        onRequestDelete={setPendingKbDelete}
+      />
 
       <div className="mb-4">
         <UploadZone onFile={handleFile} />
@@ -163,6 +169,14 @@ export default function KbPage() {
         message={`确认删除「${pendingDelete?.fileName ?? ""}」？该操作会同时删除其全部分块，不可恢复。`}
         onCancel={() => setPendingDelete(null)}
         onConfirm={handleDelete}
+      />
+
+      <ConfirmDialog
+        open={pendingKbDelete !== null}
+        title="删除知识库"
+        message={`确认删除知识库「${pendingKbDelete?.name ?? ""}」？库内全部文档、分块与已存文件将一并删除，不可恢复。`}
+        onCancel={() => setPendingKbDelete(null)}
+        onConfirm={handleKbDelete}
       />
     </div>
   );
