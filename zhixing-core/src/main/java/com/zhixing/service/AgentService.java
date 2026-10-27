@@ -35,7 +35,6 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
-import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Agent SSE 编排（详设 13-阶段3 §10，与 QaService 同构）：run/confirm/cancel 三入口。
@@ -120,6 +119,9 @@ public class AgentService {
         runMapper.insert(agentRun);
         // trace run 与 agent_run 同 id 建立（节点埋点以 agent runId 为键，缺行即孤儿——v1.1 修复）
         trace.startRun("AGENT", sessionId, runId);
+        // 一个 run 一个 TraceContext（v1.1 修复④）：贯穿首跑 / confirm 挂起 / 续跑全部段，
+        // 节点 seq 全 run 严格递增（计数器从库内已落 max(seq) 续起，重启后 confirm 依然正确）
+        TraceContext traceCtx = trace.openContext(runId);
 
         List<com.zhixing.infra.llm.dto.ChatMessage> messages = new java.util.ArrayList<>();
         // 长期记忆注入（R-T4 §2.3，DL-17 ②）：system 消息内容尾部追加同款偏好块
@@ -147,7 +149,7 @@ public class AgentService {
             }
         }
         messages.add(com.zhixing.infra.llm.dto.ChatMessage.user(req.getInput()));
-        return launch(runId, sessionId, req.getKbId(), messages, 0, userMsgId, "start", req.getInput());
+        return launch(runId, sessionId, req.getKbId(), messages, 0, userMsgId, "start", req.getInput(), traceCtx);
     }
 
     // ===== 入口二：确认挂起恢复 =====
@@ -164,6 +166,9 @@ public class AgentService {
                 confirmManager.deserializeMessages(suspended.getMessagesSnapshot());
         PendingToolCall pending = confirmManager.deserializePendingTool(suspended.getPendingTool());
         int iterations = suspended.getIterations() == null ? 0 : suspended.getIterations();
+        // 一个 run 一个 TraceContext（v1.1 修复④）：pending 工具节点与续跑段全部节点共用
+        // 同一计数器，seq 从挂起前首段已落节点的 max(seq) 续起——不再各自从 1 重复
+        TraceContext traceCtx = trace.openContext(runId);
 
         String resultContent;
         if (!approved) {
@@ -177,8 +182,7 @@ public class AgentService {
                 //（挂起期间对象可能被删，工具返回 fail 即错误结果回填，模型自纠，不终态）
                 ToolCall call = new ToolCall(pending.toolCallId(), pending.name(), pending.arguments());
                 try {
-                    resultContent = toolExecutor.execute(tool, call, runId,
-                            new TraceContext(runId, new AtomicInteger()), iterations).content();
+                    resultContent = toolExecutor.execute(tool, call, runId, traceCtx, iterations).content();
                 } catch (Exception e) {
                     // 恢复名额已被 CAS 占用：异常也必须回填结果让续跑流完整（fail 文案哲学同上）
                     resultContent = "工具执行异常：" + e.getMessage() + "。请向用户说明情况。";
@@ -189,7 +193,7 @@ public class AgentService {
         messages.add(com.zhixing.infra.llm.dto.ChatMessage.toolResult(pending.toolCallId(), resultContent));
 
         return launch(runId, suspended.getSessionId(), suspended.getKbId(), messages,
-                iterations, null, "start", suspended.getInput());
+                iterations, null, "start", suspended.getInput(), traceCtx);
     }
 
     // ===== 入口三：取消 =====
@@ -223,10 +227,18 @@ public class AgentService {
 
     // ===== 公共：起流（run 与 confirm 共用）=====
 
+    /**
+     * 起流（run 与 confirm 共用）。traceCtx 即 openContext 打开的 run 级上下文，随
+     * AgentRunContext 交引擎贯穿全程。
+     *
+     * <p>totalCostMs 口径（P8 注记，不改行为）：trace_run.total_cost_ms 与 agent_run.cost_ms
+     * 均记「本次 launch 段」耗时——新 run 即全程；confirm 续跑段只计续跑段耗时，不含挂起前
+     * 首段与挂起等待时长（挂起点与恢复点分属两次 HTTP，跨段总耗时无单一时钟可依）。
+     */
     private SseEmitter launch(long runId, Long sessionId, Long kbId,
                               List<com.zhixing.infra.llm.dto.ChatMessage> messages,
                               int startIteration, Long messageIdForStart, String startEvent,
-                              String userInputForMemory) {
+                              String userInputForMemory, TraceContext traceCtx) {
         SseEmitter emitter = new SseEmitter(props.getEmitterTimeoutMs());
         SseEventSink sink = new SseEmitterSink(emitter);
         AgentCancellation cancellation = new AgentCancellation();
@@ -235,7 +247,7 @@ public class AgentService {
         emitter.onTimeout(cancellation::cancel);
         emitter.onError(t -> cancellation.cancel());
 
-        AgentRunContext ctx = new AgentRunContext(runId, sessionId, kbId, messages, startIteration);
+        AgentRunContext ctx = new AgentRunContext(runId, sessionId, kbId, messages, startIteration, traceCtx);
         CompletableFuture.runAsync(() -> {
             long startMs = System.currentTimeMillis();
             try {
