@@ -3,6 +3,7 @@ package com.zhixing.common;
 public enum ErrorCode implements IErrorCode {
     // ========== A 类错误：客户端错误 ==========
     CLIENT_ERROR("A0000", "客户端参数错误"),
+    NOT_FOUND("A0004", "资源不存在"),
 
     // ========== B 类错误：服务内部错误 ==========
     SERVER_ERROR("B0001", "服务内部错误"),

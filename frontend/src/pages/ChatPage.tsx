@@ -1,32 +1,34 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import AgentConfirmModal from "../components/AgentConfirmModal";
-import ChatInput, { type ChatMode } from "../components/ChatInput";import MessageList from "../components/MessageList";
+import ChatInput, { type ChatMode } from "../components/ChatInput";
+import MessageList from "../components/MessageList";
 import SessionSidebar from "../components/SessionSidebar";
 import type { ChatMessage } from "../components/MessageBubble";
 import { useAgentRun } from "../hooks/useAgentRun";
-import { getMessages, getSessions, listKnowledgeBases, streamQa } from "../lib/api";
-import type { Id, KbSummary, SessionItem } from "../lib/types";
+import { useActiveKnowledgeBase } from "../hooks/useActiveKnowledgeBase";
+import { useRagTurn } from "../hooks/useRagTurn";
+import { getMessages, getSessions } from "../lib/api";
+import type { Id, SessionItem } from "../lib/types";
 
 /**
  * 聊天页：RAG 问答（v0.1 行为不变）+ Agent 模式（工具时间线/确认弹窗/取消）。
+ * 知识库选择与 RAG 流式回合分别在 useActiveKnowledgeBase / useRagTurn（v1.1-D 拆分，行为不变）。
  * 契约缺口（已上报）：两种流都不回传 sessionId——首问完成后取会话列表最新一条补齐。
  */
 export default function ChatPage() {
   const [sessions, setSessions] = useState<SessionItem[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<Id | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [ragStreaming, setRagStreaming] = useState(false);
   const [mode, setMode] = useState<ChatMode>("rag");
-  const [kbs, setKbs] = useState<KbSummary[]>([]);
-  const [activeKbId, setActiveKbId] = useState<Id | null>(null);
   const activeSessionIdRef = useRef<Id | null>(null);
   activeSessionIdRef.current = activeSessionId;
-  const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const agent = useAgentRun();
+  const { kbs, activeKbId, handleKbChange } = useActiveKnowledgeBase();
+  const ragTurn = useRagTurn({ setMessages, onSessionAdopt: adoptLatestSession });
   const agentActive = agent.state.phase === "running" || agent.state.phase === "awaiting-confirm";
-  const streaming = mode === "rag" ? ragStreaming : agentActive;
+  const streaming = mode === "rag" ? ragTurn.streaming : agentActive;
 
   const refreshSessions = useCallback((): void => {
     getSessions().then(setSessions).catch(() => setSessions([]));
@@ -36,25 +38,21 @@ export default function ChatPage() {
     refreshSessions();
   }, [refreshSessions]);
 
-  // 知识库列表（v1.1 接线 GET /api/kb）：选中库与知识库页共享 localStorage 键
-  useEffect(() => {
-    listKnowledgeBases()
-      .then((list) => {
-        setKbs(list);
-        const stored = localStorage.getItem("zhixing.activeKbId");
-        const initial = list.find((kb) => kb.id === stored)?.id ?? list[0]?.id ?? null;
-        setActiveKbId(initial);
-        if (initial !== null) {
-          localStorage.setItem("zhixing.activeKbId", initial);
-        }
-      })
-      .catch(() => setKbs([]));
-  }, []);
-
-  const handleKbChange = useCallback((kbId: Id): void => {
-    setActiveKbId(kbId);
-    localStorage.setItem("zhixing.activeKbId", kbId);
-  }, []);
+  /** 首问无 sessionId 的契约缺口适配：终态后取会话列表最新一条补齐（两种流共用）。 */
+  function adoptLatestSession(): void {
+    if (activeSessionIdRef.current === null) {
+      getSessions()
+        .then((list) => {
+          if (list.length > 0) {
+            setActiveSessionId(list[0].id);
+          }
+          setSessions(list);
+        })
+        .catch(refreshSessions);
+    } else {
+      refreshSessions();
+    }
+  }
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -78,31 +76,13 @@ export default function ChatPage() {
       },
     ]);
     agent.reset();
-    if (activeSessionIdRef.current === null) {
-      getSessions()
-        .then((list) => {
-          if (list.length > 0) {
-            setActiveSessionId(list[0].id);
-          }
-          setSessions(list);
-        })
-        .catch(refreshSessions);
-    } else {
-      refreshSessions();
-    }
+    adoptLatestSession();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agent.state.phase]);
 
-  const abortRag = useCallback((): void => {
-    abortRef.current?.abort();
-    abortRef.current = null;
-    setRagStreaming(false);
-    setMessages((prev) => prev.map((m) => (m.streaming ? { ...m, streaming: false } : m)));
-  }, []);
-
   const handleSelectSession = useCallback(
     (sessionId: Id): void => {
-      abortRag();
+      ragTurn.abort();
       agent.abort();
       setActiveSessionId(sessionId);
       getMessages(sessionId)
@@ -118,15 +98,15 @@ export default function ChatPage() {
         )
         .catch(() => setMessages([]));
     },
-    [abortRag, agent],
+    [ragTurn, agent],
   );
 
   const handleNewSession = useCallback((): void => {
-    abortRag();
+    ragTurn.abort();
     agent.abort();
     setActiveSessionId(null);
     setMessages([]);
-  }, [abortRag, agent]);
+  }, [ragTurn, agent]);
 
   const handleSend = useCallback(
     (question: string): void => {
@@ -138,72 +118,9 @@ export default function ChatPage() {
         agent.start(question, activeSessionIdRef.current, activeKbId);
         return;
       }
-      // ===== RAG 问答（v0.1 行为不变）=====
-      const assistantMessage: ChatMessage = { role: "assistant", content: "", sources: [], streaming: true };
-      setMessages((prev) => [...prev, assistantMessage]);
-      setRagStreaming(true);
-      const controller = new AbortController();
-      abortRef.current = controller;
-      const patchAssistant = (patch: Partial<ChatMessage>): void => {
-        setMessages((prev) => {
-          const next = [...prev];
-          const last = next[next.length - 1];
-          if (last && last.role === "assistant") {
-            next[next.length - 1] = { ...last, ...patch };
-          }
-          return next;
-        });
-      };
-      streamQa(
-        { kbId: activeKbId, sessionId: activeSessionIdRef.current, question },
-        {
-          onStart: () => undefined,
-          onThinking: () => undefined,
-          onContent: ({ delta }) =>
-            setMessages((prev) => {
-              const next = [...prev];
-              const last = next[next.length - 1];
-              if (last && last.role === "assistant") {
-                next[next.length - 1] = { ...last, content: last.content + delta };
-              }
-              return next;
-            }),
-          onSources: (sources) => patchAssistant({ sources }),
-          onError: ({ code, message }) => patchAssistant({ error: `[${code}] ${message}`, streaming: false }),
-          onDone: () => {
-            patchAssistant({ streaming: false });
-            if (activeSessionIdRef.current === null) {
-              getSessions()
-                .then((list) => {
-                  if (list.length > 0) {
-                    setActiveSessionId(list[0].id);
-                  }
-                  setSessions(list);
-                })
-                .catch(refreshSessions);
-            } else {
-              refreshSessions();
-            }
-          },
-          onProtocolViolation: (message) => patchAssistant({ error: message, streaming: false }),
-        },
-        controller.signal,
-      )
-        .catch((err: unknown) => {
-          if (controller.signal.aborted) {
-            return;
-          }
-          patchAssistant({ error: err instanceof Error ? err.message : String(err), streaming: false });
-        })
-        .finally(() => {
-          if (abortRef.current === controller) {
-            abortRef.current = null;
-          }
-          setRagStreaming(false);
-          setMessages((prev) => prev.map((m) => (m.streaming ? { ...m, streaming: false } : m)));
-        });
+      ragTurn.send(activeKbId, activeSessionIdRef.current, question);
     },
-    [streaming, mode, activeKbId, agent, refreshSessions],
+    [streaming, mode, activeKbId, agent, ragTurn],
   );
 
   const agentTurnView =

@@ -3,7 +3,8 @@
 # 集成验收脚本（详设-阶段1 §1 验收 1-4；T1-9 验收 agent 试点复用）
 # 前置：1) 服务已启动（./mvnw spring-boot:run，端口 9090）
 #       2) 已 source .env（DEEPSEEK_API_KEY / ZHIPU_API_KEY）
-#       3) Docker 容器 zhixing-pg 在跑（trace 查询走 psql）
+#       3) Docker PG 容器在跑（trace 查询走 psql；容器名/账号可用环境变量覆盖，
+#          默认 zhixing-pg——compose 起的库名为 zhixing-pg-compose，用 PG_CONTAINER 指定）
 # 用法：source .env && bash scripts/acceptance.sh
 # 花钱提醒：步骤 3/4 调真实 embedding + chat API。
 # 幂等：重复执行时同 hash 文档判重命中（X-Idempotent-Hit: true），轮询已有文档状态。
@@ -11,7 +12,10 @@
 set -uo pipefail
 BASE=http://127.0.0.1:9090
 DOC=docs/scenario/docs/01-param-xiaomi-15-ultra.md
-PSQL="docker exec zhixing-pg psql -U postgres -d zhixing -t -A -c"
+PG_CONTAINER="${PG_CONTAINER:-zhixing-pg}"
+PG_USER="${PG_USER:-postgres}"
+PG_DB="${PG_DB:-zhixing}"
+PSQL="docker exec ${PG_CONTAINER} psql -U ${PG_USER} -d ${PG_DB} -t -A -c"
 
 json() { python3 -c "import sys,json; d=json.load(sys.stdin); print(eval(sys.argv[1]))" "$1" 2>/dev/null; }
 

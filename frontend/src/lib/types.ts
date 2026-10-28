@@ -37,7 +37,8 @@ export interface DocumentItem {
   /** Long→String 策略下实际为字符串，仅展示。 */
   fileSize: number | string | null;
   errorMsg: string | null;
-  // GET /api/kb/{kbId}/documents 未返回 createdAt（后端契约现状），列表页暂以 chunkCount/状态为主
+  /** ISO 字符串（后端 DocumentItemResponse.createdAt，v1.1 补齐），仅展示。 */
+  createdAt: string | null;
 }
 
 export type DocStatus =

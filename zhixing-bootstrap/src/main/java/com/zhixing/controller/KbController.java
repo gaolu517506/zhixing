@@ -102,11 +102,13 @@ public class KbController {
     }
 
     public record DocumentItemResponse(Long id, String fileName, String fileType, Long fileSize,
-                                       String status, Integer chunkCount, String errorMsg) {
+                                       String status, Integer chunkCount, String errorMsg,
+                                       LocalDateTime createdAt) {
 
         static DocumentItemResponse of(KbDocument doc) {
             return new DocumentItemResponse(doc.getId(), doc.getFileName(), doc.getFileType(),
-                    doc.getFileSize(), doc.getStatus(), doc.getChunkCount(), doc.getErrorMsg());
+                    doc.getFileSize(), doc.getStatus(), doc.getChunkCount(), doc.getErrorMsg(),
+                    doc.getCreatedAt());
         }
     }
 }

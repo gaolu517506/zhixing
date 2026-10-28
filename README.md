@@ -46,7 +46,7 @@ flowchart LR
 
 ## 快速开始
 
-前置：JDK 17、Docker、Node.js 18+，以及 [DeepSeek](https://platform.deepseek.com/) 与 [智谱](https://open.bigmodel.cn/) API Key。
+前置：JDK 17、Docker、Node.js 20+（MCP 演示工具需要；仅跑后端与前端可无 Node），以及 [DeepSeek](https://platform.deepseek.com/) 与 [智谱](https://open.bigmodel.cn/) API Key。
 
 ### 方式一：Docker Compose（推荐）
 
@@ -81,7 +81,8 @@ done
 # 3. 配置并启动后端
 cp .env.example .env && vim .env && source .env
 ./mvnw spring-boot:run          # 默认连接 127.0.0.1:5432，可用 PG_URL/PG_USER/PG_PASSWORD 覆盖
-# Agent 的 MCP 演示工具（kb_stats/echo）需本机装有 Node.js 20+；启动日志见「注册 2 个远程工具」
+# Agent 的 MCP 演示工具（kb_stats/echo）交付默认关闭；启用将 application.yaml 的
+# zhixing.agent.mcp.enabled 置 true（需本机装有 Node.js 20+），启动日志见「注册 2 个远程工具」
 
 # 4. 启动前端（同方式一第 3 步）
 
@@ -95,7 +96,7 @@ curl http://localhost:9090/api/health
 ### 测试
 
 ```bash
-./mvnw test    # 离线单测 127 例：SSE 解析、错误分类、分块、RRF、ReAct 状态机、MCP 生命周期（需 node）、会话记忆等，不联网
+./mvnw test    # 单测 209 例（202 例离线 + 7 例联网冒烟默认门控跳过）：SSE 解析、错误分类、分块、RRF、ReAct 状态机、MCP 生命周期（需 node）、会话记忆等
 
 # 冒烟测试（真实调用模型 API，产生少量费用），需先 source .env
 LLM_SMOKE=true ./mvnw test -Dtest='LlmSmokeTest,LlmZhipuPrimarySmokeTest'
@@ -180,7 +181,7 @@ zhixing
 | v0.1 ✅ | RAG 全链路 + 多轮对话 + Web 控制台三页 + Docker Compose 一键部署 |
 | v0.2 ✅ | 自研 ReAct Agent（复合任务）、写操作人工确认与挂起恢复、跨供应商容错降级与熔断、Agent 事件前端（thinking / 工具时间线 / 确认弹窗） |
 | **v1.0 ✅（当前）** | MCP 工具接入、简化版长期记忆（跨会话偏好注入）、单体 → 四模块拆分 |
-| v1.1（候选） | Embedding 备胎容错、Agent 并行工具调度、评测集扩充与质量报告 |
+| v1.1（进行中） | 已交付：CI 门禁与开源卫生、embedding 备胎容错、评测数字公开、演示素材、前端三页真实化、全量代码评审修复（批次一/二/三） |
 
 ## License
 

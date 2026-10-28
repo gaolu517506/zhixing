@@ -124,13 +124,13 @@ public class AgentService {
         TraceContext traceCtx = trace.openContext(runId);
 
         List<com.zhixing.infra.llm.dto.ChatMessage> messages = new java.util.ArrayList<>();
-        // 长期记忆注入（R-T4 §2.3，DL-17 ②）：system 消息内容尾部追加同款偏好块
-        String systemPrompt = SYSTEM_PROMPT;
+        // 长期记忆注入（R-T4 §2.3，DL-17 ②）：system 后追加独立 user 提示块（评审 P7：
+        // 曾拼进 system 尾部，供应商对角色的区分失效；与 QA 侧 buildMultiTurnMessages 同序同源）
+        messages.add(com.zhixing.infra.llm.dto.ChatMessage.system(SYSTEM_PROMPT));
         String memoryBlock = longTermMemory.injectionBlock();
         if (memoryBlock != null) {
-            systemPrompt = systemPrompt + "\n\n" + memoryBlock;
+            messages.add(com.zhixing.infra.llm.dto.ChatMessage.user(memoryBlock));
         }
-        messages.add(com.zhixing.infra.llm.dto.ChatMessage.system(systemPrompt));
         // 会话历史回放（v1.1）：此前 Agent 跨 run 完全失忆——「执行删除」这类续指令在新 run 里
         // 无从理解（2026-10-26 用户实测暴露）。回放近 8 轮（16 条，与 QA 窗口口径一致），仅取
         // user/assistant 文本；工具明细留在 agent_run_step/trace，不进上下文。当前输入在发起新

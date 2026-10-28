@@ -7,6 +7,8 @@ import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.servlet.NoHandlerFoundException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 /**
  * 全局异常翻译官：把所有异常统一翻译成 Result。
@@ -54,6 +56,16 @@ public class GlobalExceptionHandler {
     public Result<Void> handleMissingParam(MissingServletRequestParameterException e) {
         log.warn("missing required param [{}]", e.getParameterName());
         return Result.fail(ErrorCode.CLIENT_ERROR, "缺少必填参数：" + e.getParameterName());
+    }
+
+    /**
+     * 未知路径 404（无 handler / 静态资源 miss）：客户端的错，归 A 段——
+     * 评审 S3：曾落兜底 handleUnexpected 变 B0001「服务内部错误」+ error 堆栈，语义失实。
+     */
+    @ExceptionHandler({NoResourceFoundException.class, NoHandlerFoundException.class})
+    public Result<Void> handleNotFound(Exception e) {
+        log.warn("resource not found: {}", e.getMessage());
+        return Result.fail(ErrorCode.NOT_FOUND, "资源不存在");
     }
 
     /** 兜底：真实原因只留服务端日志（error 级 + 堆栈），对外永远只说"服务内部错误"。 */
