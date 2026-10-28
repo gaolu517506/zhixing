@@ -4,6 +4,10 @@ public enum ErrorCode implements IErrorCode {
     // ========== A 类错误：客户端错误 ==========
     CLIENT_ERROR("A0000", "客户端参数错误"),
     NOT_FOUND("A0004", "资源不存在"),
+    // v2.0 认证/权限段（契约基线 T6-0 预分配：A0008-A0099 备用，追加保持分段）
+    UNAUTHORIZED("A0005", "未认证"),
+    FORBIDDEN("A0006", "无权限访问"),
+    QUOTA_EXCEEDED("A0007", "配额超限"),
 
     // ========== B 类错误：服务内部错误 ==========
     SERVER_ERROR("B0001", "服务内部错误"),

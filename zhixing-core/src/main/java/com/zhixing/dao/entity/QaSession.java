@@ -20,6 +20,9 @@ public class QaSession {
     /** 默认取问题前 20 字。 */
     private String title;
 
+    /** 归属用户（V4，F3 审计的操作者维度）；v2.0 起新会话必填，存量行为 null。 */
+    private Long userId;
+
     private String summaryText;
 
     private Long summarizedMsgId;

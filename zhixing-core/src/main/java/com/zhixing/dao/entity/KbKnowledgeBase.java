@@ -22,6 +22,9 @@ public class KbKnowledgeBase {
 
     private String description;
 
+    /** 可见性（V4，F2）：PRIVATE（默认，仅成员）/ ALL（所有登录用户）。判定单点 PermissionService。 */
+    private String visibility;
+
     private Integer chunkSize;
 
     private Integer chunkOverlap;

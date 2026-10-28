@@ -26,6 +26,9 @@ public class AgentRun {
 
     private Long kbId;
 
+    /** 发起用户（V4，F3 审计的操作者维度）；v2.0 起新 run 必填，存量行为 null。 */
+    private Long userId;
+
     private String input;
 
     private String status;

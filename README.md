@@ -96,7 +96,7 @@ curl http://localhost:9090/api/health
 ### 测试
 
 ```bash
-./mvnw test    # 单测 228 例（221 例离线 + 7 例联网冒烟默认门控跳过）：SSE 解析、错误分类、分块、RRF、ReAct 状态机、MCP 生命周期（需 node）、会话记忆等
+./mvnw test    # 单测 231 例（224 例离线 + 7 例联网冒烟默认门控跳过）：SSE 解析、错误分类、分块、RRF、ReAct 状态机、MCP 生命周期（需 node）、会话记忆等
 
 # 冒烟测试（真实调用模型 API，产生少量费用），需先 source .env
 LLM_SMOKE=true ./mvnw test -Dtest='LlmSmokeTest,LlmZhipuPrimarySmokeTest'
