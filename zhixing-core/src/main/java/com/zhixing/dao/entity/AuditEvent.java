@@ -1,8 +1,10 @@
 package com.zhixing.dao.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.zhixing.dao.handler.JsonbTypeHandler;
 import lombok.Data;
 
 import java.time.LocalDateTime;
@@ -13,7 +15,7 @@ import java.time.LocalDateTime;
  * （与 agent_run.messages_snapshot 同约定）。
  */
 @Data
-@TableName("audit_event")
+@TableName(value = "audit_event", autoResultMap = true)
 public class AuditEvent {
 
     @TableId(type = IdType.INPUT)
@@ -34,6 +36,7 @@ public class AuditEvent {
     private String result;
 
     /** JSONB 字符串（可空） */
+    @TableField(typeHandler = JsonbTypeHandler.class)
     private String detail;
 
     private LocalDateTime createdAt;

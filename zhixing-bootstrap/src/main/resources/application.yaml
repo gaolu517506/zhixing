@@ -23,6 +23,11 @@ server:
 # 冒烟/实跑需在环境变量提供 DEEPSEEK_API_KEY、ZHIPU_API_KEY（IDEA 运行配置透传）。
 # 占位符带 ": " 默认空串：本地无 key 也能启动，只有真正调用时才会 401。
 zhixing:
+  auth:
+    session-ttl-days: 7                     # 会话有效期：7 天滑动续期（02 §B1）
+    renew-window-hours: 24                  # 滑动续期节流：剩余寿命不足 24h 才续，活跃会话至多每天一次 UPDATE
+    max-failed-attempts: 5                  # 连续失败锁定阈值（02 §B1：5 次锁 5 分钟，单实例内存计数）
+    lock-minutes: 5
   llm:
     providers:
       deepseek:

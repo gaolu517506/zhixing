@@ -49,8 +49,9 @@ class KbServiceDeleteKbTest {
         docMapper = mock(KbDocumentMapper.class);
         chunkMapper = mock(KbChunkMapper.class);
         fileStorage = mock(FileStorage.class);
-        service = new KbService(kbMapper, docMapper, chunkMapper, fileStorage,
-                mock(IngestionPipeline.class));
+        service = new KbService(kbMapper, docMapper, chunkMapper, mock(com.zhixing.dao.mapper.KbMemberMapper.class),
+                fileStorage, mock(IngestionPipeline.class), mock(PermissionService.class),
+                mock(AuditRecorder.class), new com.fasterxml.jackson.databind.ObjectMapper());
     }
 
     private void stubKb(long kbId, KbDocument... docs) {

@@ -21,9 +21,28 @@ class UnknownPathNotFoundTest {
     @Autowired
     private MockMvc mockMvc;
 
+    @Autowired
+    private com.zhixing.dao.mapper.AuthUserMapper authUserMapper;
+
+    @Autowired
+    private com.zhixing.dao.mapper.AuthSessionMapper authSessionMapper;
+
+    private com.zhixing.TestAuth.SeededUser admin;
+
+    @org.junit.jupiter.api.BeforeEach
+    void seed() {
+        admin = com.zhixing.TestAuth.seed(authUserMapper, authSessionMapper, "notfound-admin-" + System.nanoTime(), "ADMIN");
+    }
+
+    @org.junit.jupiter.api.AfterEach
+    void cleanup() {
+        com.zhixing.TestAuth.cleanup(authUserMapper, authSessionMapper, admin);
+    }
+
     @Test
     void 未知路径返回A0004而非B0001() throws Exception {
-        mockMvc.perform(get("/api/definitely-not-a-path"))
+        mockMvc.perform(get("/api/definitely-not-a-path")
+                .header("Authorization", com.zhixing.TestAuth.bearer(admin)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("A0004"))
                 .andExpect(jsonPath("$.message").value("资源不存在"));
