@@ -15,6 +15,7 @@ import com.zhixing.infra.llm.dto.ChatResponse;
 import com.zhixing.infra.llm.dto.ChatUsage;
 import com.zhixing.infra.llm.dto.ToolCall;
 import com.zhixing.infra.sse.SseEventSink;
+import com.zhixing.infra.trace.TraceContext;
 import com.zhixing.infra.trace.TraceRecorder;
 import com.zhixing.dao.mapper.TraceNodeMapper;
 import com.zhixing.dao.mapper.TraceRunMapper;
@@ -35,6 +36,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -194,7 +196,9 @@ class ReActEngineTest {
         List<com.zhixing.infra.llm.dto.ChatMessage> messages = new ArrayList<>();
         messages.add(com.zhixing.infra.llm.dto.ChatMessage.system("系统规则"));
         messages.add(com.zhixing.infra.llm.dto.ChatMessage.user("知识库里有没有 K80 电池的信息？"));
-        return new AgentRunContext(1L, 77L, 9L, messages, 1);
+        // 一个 run 一个 TraceContext（修复④）：测试里与生产同构地显式打开
+        return new AgentRunContext(1L, 77L, 9L, messages, 1,
+                new TraceContext(1L, new java.util.concurrent.atomic.AtomicInteger()));
     }
 
     private void run(ReActEngine eng, AgentRunContext c, AgentCancellation cancellation) {
@@ -302,7 +306,9 @@ class ReActEngineTest {
                 com.zhixing.infra.llm.dto.ChatMessage.toolResult("call-d", "已删除文档：09-fault-wifi.md（kb=9）")));
         chat.rounds.add(ScriptedChat.Round.answer("已按你的确认删除该文档。"));
 
-        run(engine, new AgentRunContext(1L, 77L, 9L, resumed, 2), new AgentCancellation());
+        AgentRunContext resumeCtx = new AgentRunContext(1L, 77L, 9L, resumed, 2,
+                new TraceContext(1L, new java.util.concurrent.atomic.AtomicInteger()));
+        run(engine, resumeCtx, new AgentCancellation());
 
         assertThat(eventNames()).containsExactly("content", "done");
         ArgumentCaptor<AgentRun> run = ArgumentCaptor.forClass(AgentRun.class);
@@ -321,7 +327,9 @@ class ReActEngineTest {
                 com.zhixing.infra.llm.dto.ChatMessage.toolResult("call-d", "用户拒绝了该操作，请调整方案或向用户说明。")));
         chat.rounds.add(ScriptedChat.Round.answer("好的，未执行删除。建议改为归档或重命名。"));
 
-        run(engine, new AgentRunContext(1L, 77L, 9L, resumed, 2), new AgentCancellation());
+        AgentRunContext resumeCtx = new AgentRunContext(1L, 77L, 9L, resumed, 2,
+                new TraceContext(1L, new java.util.concurrent.atomic.AtomicInteger()));
+        run(engine, resumeCtx, new AgentCancellation());
 
         // 续跑第 1 轮请求里带拒绝文案的 tool 消息
         List<com.zhixing.infra.llm.dto.ChatMessage> msgs = chat.requests.get(0).getMessages();
@@ -419,6 +427,36 @@ class ReActEngineTest {
         ArgumentCaptor<AgentRun> run = ArgumentCaptor.forClass(AgentRun.class);
         verify(runMapper).updateById(run.capture());
         assertThat(run.getValue().getStatus()).isEqualTo("CANCELLED");
+    }
+
+    // ===== ⑨ trace 节点 seq 严格递增（v1.1 修复④，任务书验收断言） =====
+
+    @Test
+    void 多轮run的trace节点seq严格递增() {
+        TraceNodeMapper seqNodeMapper = mock(TraceNodeMapper.class);
+        TraceRecorder traceRecorder = new TraceRecorder(mock(TraceRunMapper.class),
+                seqNodeMapper, new TraceProperties());
+        ToolExecutor executor = new ToolExecutor(stepMapper, traceRecorder, props, new ObjectMapper());
+        ReActEngine eng = new ReActEngine(chat, new ToolRegistry(List.of(
+                new FakeTool("search_knowledge", false, args -> ToolResult.ok("检索结果")))),
+                executor, new ContextManager(props, chat), new ConfirmManager(runMapper, new ObjectMapper()),
+                traceRecorder, props, messageMapper, runMapper, stepMapper);
+        chat.rounds.add(ScriptedChat.Round.tools(CALL1));
+        chat.rounds.add(ScriptedChat.Round.answer("完成。"));
+
+        run(eng, ctx(), new AgentCancellation());
+
+        // llm → tool → llm 三节点：seq 1,2,3 严格递增——引擎与 ToolExecutor 收到的
+        // ctx 同源（AgentRunContext.traceCtx 贯穿），循环内不再新建计数器
+        ArgumentCaptor<com.zhixing.dao.entity.TraceNode> nodes =
+                ArgumentCaptor.forClass(com.zhixing.dao.entity.TraceNode.class);
+        verify(seqNodeMapper, times(3)).insert(nodes.capture());
+        assertThat(nodes.getAllValues())
+                .extracting(com.zhixing.dao.entity.TraceNode::getSeq)
+                .containsExactly(1, 2, 3);
+        assertThat(nodes.getAllValues())
+                .extracting(com.zhixing.dao.entity.TraceNode::getName)
+                .containsExactly("llm", "tool", "llm");
     }
 
     @Test

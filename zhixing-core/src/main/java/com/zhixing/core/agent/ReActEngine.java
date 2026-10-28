@@ -30,7 +30,6 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * ReAct 循环状态机（详设 13-阶段3 §5，本阶段最核心类）。
@@ -118,7 +117,9 @@ public class ReActEngine {
         int[] promptTokens = {0};
         int[] completionTokens = {0};
         int iter = Math.max(1, ctx.startIteration());
-        TraceContext traceCtx = new TraceContext(runId, new AtomicInteger());
+        // 一个 run 一个 TraceContext（v1.1 修复④）：由 AgentService openContext 打开、跨
+        // confirm 挂起/续跑贯穿传递；引擎循环内不再新建计数器，节点 seq 全 run 严格递增
+        TraceContext traceCtx = java.util.Objects.requireNonNull(ctx.traceCtx(), "traceCtx");
         try {
             String lastFailedTool = null;
             int consecutiveFailures = 0;

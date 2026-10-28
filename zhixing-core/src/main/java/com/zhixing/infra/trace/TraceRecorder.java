@@ -1,6 +1,7 @@
 package com.zhixing.infra.trace;
 
 import cn.hutool.core.util.IdUtil;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zhixing.config.TraceProperties;
 import com.zhixing.dao.entity.TraceNode;
@@ -11,6 +12,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * Trace 手动埋点（概设 D7）：调用方在业务代码里显式包一层 node(...)，try-finally 语义由本类封装——
@@ -73,6 +75,34 @@ public class TraceRecorder {
         patch.setTotalCostMs(totalCostMs);
         patch.setErrorMsg(error);
         runMapper.updateById(patch);
+    }
+
+    /**
+     * 打开一个 run 的 trace 上下文：计数器从该 run 已落节点的 max(seq) 续起而非从 0。
+     * AGENT confirm 续跑段与挂起前首段由此共享同一 seq 序列（v1.1 真库实证修复④：
+     * 此前各段各建计数器，同 run 的 seq 重复从 1 起）；trace 关闭（runId=0）返回直通上下文。
+     */
+    public TraceContext openContext(long runId) {
+        return new TraceContext(runId, new java.util.concurrent.atomic.AtomicInteger(currentSeq(runId)));
+    }
+
+    /** 该 run 已落节点的最大 seq（无节点 / trace 关闭 / 查询失败 → 0，降级为旧行为不影响业务链路）。 */
+    public int currentSeq(long runId) {
+        if (runId == 0) {
+            return 0;
+        }
+        try {
+            List<Object> rows = nodeMapper.selectObjs(new QueryWrapper<TraceNode>()
+                    .select("COALESCE(MAX(seq), 0)")
+                    .eq("run_id", runId));
+            if (rows.isEmpty() || rows.get(0) == null) {
+                return 0;
+            }
+            return ((Number) rows.get(0)).intValue();
+        } catch (Exception e) {
+            log.warn("trace seq 续位查询失败 runId={}: {}", runId, e.getMessage());
+            return 0;
+        }
     }
 
     /**

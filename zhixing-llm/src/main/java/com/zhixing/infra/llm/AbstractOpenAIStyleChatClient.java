@@ -21,6 +21,7 @@ import okhttp3.ResponseBody;
 
 import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
@@ -35,9 +36,12 @@ import java.nio.charset.StandardCharsets;
  * <p>流式收尾语义（容错三规则的落点）：
  * ① 单行解析失败由解析器降级为 EMPTY，不断流；
  * ② finish_reason 到达先记账不立即结束——usage 块在 finish 块之后、[DONE] 之前，
- *    等到 [DONE] 或 EOF 任一即收尾；EOF/读超时都视为流自然终止，
- *    若 finish_reason 已到则按正常收尾回调，绝不让完整答案被一个迟到的 [DONE] 毁掉；
- * ③ HTTP 200 但 body 带 error（含流中 error 事件）一律当失败。
+ *    等到 [DONE] 或 EOF 任一即收尾；[DONE] 到达记 done 标志（v1.1 S1），
+ *    收尾仅当 finish_reason 与 done 皆无才判 INVALID_RESPONSE；
+ *    EOF/读超时都视为流自然终止，绝不让完整答案被一个迟到的 [DONE] 毁掉；
+ * ③ HTTP 200 但 body 带 error（含流中 error 事件）一律当失败，且按 error 对象内容
+ *    细分 UNAUTHORIZED/RATE_LIMITED/SERVER_ERROR（v1.1 S2），鉴权/限流失败不再以
+ *    可降级身份污染熔断计数。
  */
 @Slf4j
 public abstract class AbstractOpenAIStyleChatClient implements ChatClient {
@@ -101,8 +105,6 @@ public abstract class AbstractOpenAIStyleChatClient implements ChatClient {
     @Override
     public void stream(ChatRequest request, StreamCallback callback) {
         Request httpRequest = buildRequest(request, true);
-        ChatUsage usage = null;
-        String finishReason = null;
         try (Response response = httpClient.newCall(httpRequest).execute()) {
             ResponseBody responseBody = response.body();
             if (!response.isSuccessful()) {
@@ -111,19 +113,47 @@ public abstract class AbstractOpenAIStyleChatClient implements ChatClient {
             if (responseBody == null) {
                 throw new ModelClientException(ErrorType.INVALID_RESPONSE, provider() + " 流式响应无 body");
             }
-            BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(responseBody.byteStream(), StandardCharsets.UTF_8));
+            readStream(responseBody.byteStream(), callback);
+        } catch (ModelClientException e) {
+            callback.onError(e);
+        } catch (SocketTimeoutException e) {
+            // 建连/首字节阶段超时（读阶段的超时在 readStream 内按已收内容裁决）
+            callback.onError(new ModelClientException(ErrorType.TIMEOUT, provider() + " 流式读取超时", e));
+        } catch (IOException e) {
+            callback.onError(new ModelClientException(ErrorType.NETWORK_ERROR,
+                    provider() + " 流式网络异常：" + e.getMessage(), e));
+        } catch (RuntimeException e) {
+            callback.onError(e);
+        }
+    }
+
+    /**
+     * SSE 循环 + 收尾判定（容错规则的落点，包可见以便离线单测直喂字节流）。
+     *
+     * <p>收尾语义（v1.1 S1 修复后）：读到 [DONE] 或 EOF 任一即收尾，[DONE] 到达记账为 done
+     * 标志——收尾仅当 finish_reason 与 done 标志皆无才判 INVALID_RESPONSE，完整送达的答案
+     * 不再因供应商漏发 finish_reason 被误判失败；读超时/IO 异常若发生在 finish_reason 或
+     * done 之后同样按正常收尾。
+     */
+    void readStream(InputStream in, StreamCallback callback) {
+        BufferedReader reader = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8));
+        String finishReason = null;
+        ChatUsage usage = null;
+        boolean doneSeen = false;
+        ToolCallAggregator aggregator = new ToolCallAggregator();
+        try {
             String line;
-            ToolCallAggregator aggregator = new ToolCallAggregator();
             while ((line = reader.readLine()) != null) {
                 ParsedEvent event = PARSER.parseLine(line);
-                // 容错规则 3（流式版）：流中 error 事件必须当失败，立即终止并回调 onError
+                // 容错规则 3（流式版）：流中 error 事件必须当失败，立即终止并回调 onError；
+                // v1.1（S2）：细分类型随事件携带，鉴权/限流不再伪装成可降级的 SERVER_ERROR
                 if (event.errorMessage() != null) {
                     log.warn("[{}] 流中收到 error 事件：{}", provider(), event.errorMessage());
-                    callback.onError(new ModelClientException(ErrorType.SERVER_ERROR, event.errorMessage()));
+                    callback.onError(new ModelClientException(event.errorType(), event.errorMessage()));
                     return;
                 }
                 if (event.done()) {
+                    doneSeen = true;
                     break;
                 }
                 if (event.content() != null) {
@@ -142,36 +172,39 @@ public abstract class AbstractOpenAIStyleChatClient implements ChatClient {
                     usage = event.usage();
                 }
             }
-            if (finishReason == null) {
-                // EOF 了既无 finish_reason 也无 [DONE]：流被截断，必须当失败而不是把半截答案当成功
-                callback.onError(new ModelClientException(ErrorType.INVALID_RESPONSE,
-                        provider() + " 流提前结束：未收到 finish_reason/[DONE]"));
-            } else {
-                // 阶段 3 契约：finishReason=tool_calls 时先回调聚合结果，再 onComplete 收尾
-                if ("tool_calls".equals(finishReason)) {
-                    callback.onToolCalls(aggregator.snapshot());
-                }
-                callback.onComplete(finishReason, usage);
-            }
-        } catch (ModelClientException e) {
-            callback.onError(e);
         } catch (SocketTimeoutException e) {
-            // finish_reason 已到而 [DONE] 迟迟不来：答案已完整，读超时视同正常收尾（容错规则 2）
-            if (finishReason != null) {
-                callback.onComplete(finishReason, usage);
+            // finish_reason/[DONE] 已到而读超时：答案已完整，读超时视同正常收尾（容错规则 2）
+            if (finishReason != null || doneSeen) {
+                finishNormally(callback, finishReason, usage, aggregator);
             } else {
                 callback.onError(new ModelClientException(ErrorType.TIMEOUT, provider() + " 流式读取超时", e));
             }
+            return;
         } catch (IOException e) {
-            if (finishReason != null) {
-                callback.onComplete(finishReason, usage);
+            if (finishReason != null || doneSeen) {
+                finishNormally(callback, finishReason, usage, aggregator);
             } else {
                 callback.onError(new ModelClientException(ErrorType.NETWORK_ERROR,
                         provider() + " 流式网络异常：" + e.getMessage(), e));
             }
-        } catch (RuntimeException e) {
-            callback.onError(e);
+            return;
         }
+        if (finishReason == null && !doneSeen) {
+            // EOF 了既无 finish_reason 也无 [DONE]：流被截断，必须当失败而不是把半截答案当成功
+            callback.onError(new ModelClientException(ErrorType.INVALID_RESPONSE,
+                    provider() + " 流提前结束：未收到 finish_reason/[DONE]"));
+            return;
+        }
+        finishNormally(callback, finishReason, usage, aggregator);
+    }
+
+    /** 正常收尾：阶段 3 契约——finishReason=tool_calls 时先回调聚合结果，再 onComplete。 */
+    private void finishNormally(StreamCallback callback, String finishReason, ChatUsage usage,
+                                ToolCallAggregator aggregator) {
+        if ("tool_calls".equals(finishReason)) {
+            callback.onToolCalls(aggregator.snapshot());
+        }
+        callback.onComplete(finishReason, usage);
     }
 
     private Request buildRequest(ChatRequest request, boolean stream) {
@@ -239,21 +272,25 @@ public abstract class AbstractOpenAIStyleChatClient implements ChatClient {
                 .build();
     }
 
-    private ChatResponse parseChatBody(String body) {
+    /** 200 body → ChatResponse。包可见以便离线单测直喂 error body（S2 三形态）。 */
+    ChatResponse parseChatBody(String body) {
         JsonNode root;
         try {
             root = MAPPER.readTree(body);
         } catch (IOException e) {
             throw new ModelClientException(ErrorType.INVALID_RESPONSE, provider() + " 返回的不是合法 JSON", e);
         }
-        // 容错规则 3：HTTP 200 但 body 携带 error —— 必须当失败
+        // 容错规则 3：HTTP 200 但 body 携带 error —— 必须当失败；细分类型使鉴权/限流错误
+        // 不再以可降级的 SERVER_ERROR 身份污染熔断计数（ResilientChatDecorator 只对
+        // fallbackCapable=true 的失败 recordFailure）
         JsonNode error = root.get("error");
         if (error != null && !error.isNull()) {
             String message = error.isObject()
                     ? error.path("message").asText(error.toString())
                     : error.asText();
             log.warn("[{}] HTTP 200 但返回 error：{}", provider(), message);
-            throw new ModelClientException(ErrorType.SERVER_ERROR, provider() + " 返回业务错误：" + message);
+            throw new ModelClientException(OpenAiStyleSseParser.classifyErrorBody(error),
+                    provider() + " 返回业务错误：" + message);
         }
         JsonNode choice = root.path("choices").path(0);
         if (choice.isMissingNode() || !choice.isObject()) {

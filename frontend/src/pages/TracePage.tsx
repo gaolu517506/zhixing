@@ -4,8 +4,9 @@ import { formatTime } from "../lib/format";
 import type { TraceRunDetail, TraceRunItem } from "../lib/types";
 
 /**
- * Trace 观测页（v1.1 接线 GET /api/trace）：run 倒序列表，点开拉取节点耗时瀑布。
- * 注：当前后端仅 QA 链路建 trace_run；Agent 链路节点埋点暂为孤儿数据不在列表中（已知缺口，见台账）。
+ * Trace 观测页（v1.1 接线 GET /api/trace）：run 倒序列表，30s 静默轮询自动刷新
+ * （新 run 自动出现，轮询失败不打扰现有画面）；点开拉取节点耗时瀑布 + input/output
+ * 预览（等宽字体，截断由后端完成）。
  */
 
 const RUN_STATUS_STYLE: Record<string, string> = {
@@ -30,17 +31,25 @@ export default function TracePage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selected, setSelected] = useState<DetailState | null>(null);
 
-  const loadRuns = useCallback((): void => {
+  const loadRuns = useCallback((quiet: boolean = false): void => {
     listTraceRuns()
       .then((page) => {
         setRuns(page.items);
         setLoadError(null);
       })
-      .catch((err: unknown) => setLoadError(err instanceof Error ? err.message : String(err)));
+      .catch((err: unknown) => {
+        // 静默轮询失败不打扰现有画面（保留旧列表），仅手动刷新才呈现错误
+        if (!quiet) {
+          setLoadError(err instanceof Error ? err.message : String(err));
+        }
+      });
   }, []);
 
   useEffect(() => {
     loadRuns();
+    // 30s 静默轮询：有新 run 即出现，无跳页
+    const timer = window.setInterval(() => loadRuns(true), 30_000);
+    return () => window.clearInterval(timer);
   }, [loadRuns]);
 
   const toggle = useCallback(
@@ -69,7 +78,7 @@ export default function TracePage() {
         <h2 className="text-base font-semibold text-slate-800">链路追踪</h2>
         <button
           type="button"
-          onClick={loadRuns}
+          onClick={() => loadRuns(false)}
           className="rounded border border-slate-200 px-3 py-1 text-xs text-slate-500 hover:bg-slate-50"
         >
           刷新
@@ -142,29 +151,53 @@ export default function TracePage() {
               <h3 className="mb-3 text-sm font-semibold text-slate-700">
                 节点耗时（run {selected.runId}，条长 = 耗时占比）
               </h3>
-              <ul className="space-y-2">
+              <ul className="space-y-3">
                 {nodes.map((node) => (
-                  <li key={node.seq} className="flex items-center gap-3 text-sm">
-                    <span className="w-32 shrink-0 text-slate-600">
-                      {node.seq}. {node.name}
-                    </span>
-                    <div className="h-3 min-w-0 flex-1 rounded bg-slate-100">
-                      <div
-                        className={`h-3 rounded ${node.status === "FAILED" ? "bg-red-400" : "bg-blue-500"}`}
-                        style={{ width: `${Math.max(2, (Number(node.costMs ?? 0) / maxCost) * 100)}%` }}
-                      />
+                  <li key={node.seq}>
+                    <div className="flex items-center gap-3 text-sm">
+                      <span className="w-32 shrink-0 text-slate-600">
+                        {node.seq}. {node.name}
+                      </span>
+                      <div className="h-3 min-w-0 flex-1 rounded bg-slate-100">
+                        <div
+                          className={`h-3 rounded ${node.status === "FAILED" ? "bg-red-400" : "bg-blue-500"}`}
+                          style={{ width: `${Math.max(2, (Number(node.costMs ?? 0) / maxCost) * 100)}%` }}
+                        />
+                      </div>
+                      <span className="w-24 shrink-0 text-right tabular-nums text-slate-500">
+                        {node.costMs != null ? `${node.costMs} ms` : "-"}
+                      </span>
+                      <span
+                        className={`w-16 shrink-0 text-right text-xs ${
+                          NODE_STATUS_STYLE[node.status] ?? "text-slate-500"
+                        }`}
+                        title={[node.error, node.input, node.output].filter(Boolean).join("\n") || undefined}
+                      >
+                        {node.status}
+                      </span>
                     </div>
-                    <span className="w-24 shrink-0 text-right tabular-nums text-slate-500">
-                      {node.costMs != null ? `${node.costMs} ms` : "-"}
-                    </span>
-                    <span
-                      className={`w-16 shrink-0 text-right text-xs ${
-                        NODE_STATUS_STYLE[node.status] ?? "text-slate-500"
-                      }`}
-                      title={[node.error, node.input, node.output].filter(Boolean).join("\n") || undefined}
-                    >
-                      {node.status}
-                    </span>
+                    {(node.input || node.output || node.error) && (
+                      <div className="ml-36 mt-1 space-y-1">
+                        {node.input && (
+                          <pre className="max-h-24 overflow-y-auto whitespace-pre-wrap break-all rounded bg-slate-50 px-2 py-1 font-mono text-xs text-slate-600">
+                            <span className="mr-2 font-sans font-medium text-slate-400">输入</span>
+                            {node.input}
+                          </pre>
+                        )}
+                        {node.output && (
+                          <pre className="max-h-24 overflow-y-auto whitespace-pre-wrap break-all rounded bg-slate-50 px-2 py-1 font-mono text-xs text-slate-600">
+                            <span className="mr-2 font-sans font-medium text-slate-400">输出</span>
+                            {node.output}
+                          </pre>
+                        )}
+                        {node.error && (
+                          <pre className="overflow-y-auto whitespace-pre-wrap break-all rounded bg-red-50 px-2 py-1 font-mono text-xs text-red-600">
+                            <span className="mr-2 font-sans font-medium text-red-400">错误</span>
+                            {node.error}
+                          </pre>
+                        )}
+                      </div>
+                    )}
                   </li>
                 ))}
               </ul>

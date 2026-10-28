@@ -68,13 +68,14 @@ public class OpenAiStyleSseParser {
             return ParsedEvent.EMPTY;
         }
 
-        // 容错规则 3：data 里带 error 对象 → 必须当失败，防把错误当成功
+        // 容错规则 3：data 里带 error 对象 → 必须当失败，防把错误当成功；
+        // v1.1（S2）：按 error 对象内容细分类型，鉴权/限流不再伪装成可降级的 SERVER_ERROR
         JsonNode error = node.get("error");
         if (error != null && !error.isNull()) {
             String message = error.isObject()
                     ? error.path("message").asText(error.toString())
                     : error.asText();
-            return ParsedEvent.ofError(message);
+            return ParsedEvent.ofError(message, classifyErrorBody(error));
         }
 
         ChatUsage usage = ChatUsage.fromJson(node.get("usage"));
@@ -109,7 +110,38 @@ public class OpenAiStyleSseParser {
         if (toolDeltas != null) {
             return ParsedEvent.ofToolDeltas(toolDeltas);
         }
-        return new ParsedEvent(content, reasoning, finishReason, usage, false, null, null);
+        return new ParsedEvent(content, reasoning, finishReason, usage, false, null, null, null);
+    }
+
+    /**
+     * error body 分类（S2，语义参照 embedding 线 switchable 的分类思想；chat 侧切不切换
+     * 仍由 ErrorType.fallbackCapable 决定，共享枚举既有取值不动）：扫 code/type/status 三个
+     * 结构化字段——401/403 及鉴权字样 → UNAUTHORIZED，429 及限流字样 → RATE_LIMITED，
+     * 其余（含余额类 code 如 1113）→ SERVER_ERROR。纯函数，流式与同步 200+error 两路共用。
+     */
+    static ErrorType classifyErrorBody(JsonNode error) {
+        if (error == null || !error.isObject()) {
+            return ErrorType.SERVER_ERROR;
+        }
+        StringBuilder signals = new StringBuilder();
+        for (String field : new String[]{"code", "type", "status"}) {
+            JsonNode value = error.path(field);
+            if (!value.isMissingNode() && !value.isNull()) {
+                signals.append(value.asText()).append(' ');
+            }
+        }
+        String s = signals.toString().toLowerCase();
+        if (s.matches(".*(^|[^0-9])(401|403)([^0-9]|$).*") || s.contains("unauthorized")
+                || s.contains("authentication") || s.contains("invalid_api_key")
+                || s.contains("api key") || s.contains("permission")) {
+            return ErrorType.UNAUTHORIZED;
+        }
+        if (s.matches(".*(^|[^0-9])429([^0-9]|$).*") || s.contains("rate_limit") || s.contains("ratelimit")
+                || s.contains("rate limit") || s.contains("too_many_requests")
+                || s.contains("too many requests") || s.contains("throttl")) {
+            return ErrorType.RATE_LIMITED;
+        }
+        return ErrorType.SERVER_ERROR;
     }
 
     private static String snippet(String text) {
