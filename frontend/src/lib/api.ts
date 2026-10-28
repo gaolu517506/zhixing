@@ -1,3 +1,4 @@
+import { authHeaders, checkAuthFailure } from "./auth";
 import { parseResult, parseJsonPreservingIds } from "./json";
 import { feedSse } from "./sse";
 import type {
@@ -21,7 +22,9 @@ import type {
 } from "./types";
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, init);
+  const response = await fetch(url, { ...init, headers: { ...authHeaders(), ...init?.headers } });
+  // 401 全局拦截（任务书 29-§1③）：任意请求 401 → 清 token 广播事件，守卫跳登录
+  checkAuthFailure(response);
   // DL-3：后端 HTTP 恒 200 + 业务码；非 200 属网关/代理层异常，兜底提示
   if (!response.ok) {
     throw new Error(`请求失败：HTTP ${response.status}`);
@@ -41,6 +44,14 @@ export function getMessages(sessionId: Id): Promise<MessageItem[]> {
 
 // ===== 知识库 =====
 
+export function createKnowledgeBase(name: string): Promise<KbSummary> {
+  return request<KbSummary>("/api/kb", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+}
+
 export interface UploadOutcome {
   documentId: Id;
   status: string;
@@ -51,7 +62,12 @@ export interface UploadOutcome {
 export function uploadDocument(kbId: Id, file: File): Promise<UploadOutcome> {
   const form = new FormData();
   form.append("file", file);
-  return fetch(`/api/kb/${kbId}/documents`, { method: "POST", body: form }).then(async (response) => {
+  return fetch(`/api/kb/${kbId}/documents`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: form,
+  }).then(async (response) => {
+    checkAuthFailure(response);
     if (!response.ok) {
       throw new Error(`上传失败：HTTP ${response.status}`);
     }
@@ -148,10 +164,11 @@ export async function streamQa(
 ): Promise<void> {
   const response = await fetch("/api/qa/stream", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify(request),
     signal,
   });
+  checkAuthFailure(response);
   await consumeSseResponse(
     response,
     (event, data) => {
@@ -244,10 +261,11 @@ async function openAgentStream(
 ): Promise<void> {
   const response = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify(body),
     signal,
   });
+  checkAuthFailure(response);
   await consumeSseResponse(
     response,
     (event, data) => dispatchAgentEvent(handlers, event, data),

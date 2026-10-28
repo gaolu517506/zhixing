@@ -174,3 +174,22 @@ export interface TraceRunDetail {
   run: TraceRunItem;
   nodes: TraceNodeItem[];
 }
+
+// ===== 认证（T6-0 契约：/api/auth/*；线 A 未合入前按 29-任务书 §1 mock 开发）=====
+
+export interface AuthUser {
+  id: Id;
+  username: string;
+  displayName: string;
+  systemRole: "ADMIN" | "USER";
+}
+
+export interface LoginResponse {
+  token: string;
+  user: AuthUser;
+}
+
+/** GET /api/auth/setup-status（02-技术方案 §B1：user 表为空时 needSetup=true）。 */
+export interface SetupStatus {
+  needSetup: boolean;
+}
