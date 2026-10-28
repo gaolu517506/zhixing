@@ -67,5 +67,12 @@
             <artifactId>tika-parsers-standard-package</artifactId>
             <version>${tika.version}</version>
         </dependency>
+
+        <!-- MinIO 客户端（v2.0 F4，9.0.3 三源查证见收工报告 T6B；type=minio 条件装配时使用） -->
+        <dependency>
+            <groupId>io.minio</groupId>
+            <artifactId>minio</artifactId>
+            <version>9.0.3</version>
+        </dependency>
     </dependencies>
 </project>
