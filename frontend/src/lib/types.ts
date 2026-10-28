@@ -180,7 +180,8 @@ export interface TraceRunDetail {
 export interface AuthUser {
   id: Id;
   username: string;
-  displayName: string;
+  /** 线 A UserView 未提供该字段（联调对齐，DL-26）；展示一律回退 username。 */
+  displayName?: string;
   systemRole: "ADMIN" | "USER";
 }
 

@@ -93,7 +93,7 @@ export default function SetupWizard({
       </div>
       {step === 1 && (
         <AdminStep
-          completedAs={credential?.user.displayName ?? null}
+          completedAs={credential?.user.displayName ?? credential?.user.username ?? null}
           submitting={submitting}
           error={error}
           onSubmit={handleSetup}
