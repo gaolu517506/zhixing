@@ -96,7 +96,7 @@ curl http://localhost:9090/api/health
 ### 测试
 
 ```bash
-./mvnw test    # 单测 209 例（202 例离线 + 7 例联网冒烟默认门控跳过）：SSE 解析、错误分类、分块、RRF、ReAct 状态机、MCP 生命周期（需 node）、会话记忆等
+./mvnw test    # 单测 228 例（221 例离线 + 7 例联网冒烟默认门控跳过）：SSE 解析、错误分类、分块、RRF、ReAct 状态机、MCP 生命周期（需 node）、会话记忆等
 
 # 冒烟测试（真实调用模型 API，产生少量费用），需先 source .env
 LLM_SMOKE=true ./mvnw test -Dtest='LlmSmokeTest,LlmZhipuPrimarySmokeTest'
@@ -180,8 +180,8 @@ zhixing
 |:--|:---|
 | v0.1 ✅ | RAG 全链路 + 多轮对话 + Web 控制台三页 + Docker Compose 一键部署 |
 | v0.2 ✅ | 自研 ReAct Agent（复合任务）、写操作人工确认与挂起恢复、跨供应商容错降级与熔断、Agent 事件前端（thinking / 工具时间线 / 确认弹窗） |
-| **v1.0 ✅（当前）** | MCP 工具接入、简化版长期记忆（跨会话偏好注入）、单体 → 四模块拆分 |
-| v1.1（进行中） | 已交付：CI 门禁与开源卫生、embedding 备胎容错、评测数字公开、演示素材、前端三页真实化、全量代码评审修复（批次一/二/三） |
+| v1.0 ✅ | MCP 工具接入、简化版长期记忆（跨会话偏好注入）、单体 → 四模块拆分 |
+| **v1.1 ✅（当前）** | CI 门禁与开源卫生、embedding 备胎容错、评测数字公开、前端三页真实化、全量代码评审修复（三批次：confirm CAS / 会话回放 / SSE 收尾与错误细分 / trace seq / 404 语义 / MCP 交付默认） |
 
 ## License
 
