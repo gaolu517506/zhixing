@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zhixing.common.BusinessException;
 import com.zhixing.common.ErrorCode;
+import com.zhixing.common.auth.AuthContext;
 import com.zhixing.config.QaProperties;
 import com.zhixing.config.RetrieveProperties;
 import com.zhixing.config.RewriteProperties;
@@ -110,6 +111,10 @@ public class QaService {
     /** 长期记忆门面（R-T4 §2.3）：注入块 + 回合收尾异步仲裁；异常自吞，主链路无感知。 */
     private final com.zhixing.core.memory.LongTermMemoryService longTermMemory;
 
+    /** 权限判定单点（02 §B2，D14）：SSE 与普通请求同权——检查在 service 入口，
+     *  通过后才建 SseEmitter，无权限在 HTTP 层即以 A0006 拒绝。 */
+    private final PermissionService permissionService;
+
     public QaService(ChatClient chatClient,
                      RetrievalEngine retrievalEngine,
                      QaSessionMapper sessionMapper,
@@ -124,7 +129,8 @@ public class QaService {
                      QueryRewriter queryRewriter,
                      SummaryProperties summaryProps,
                      RewriteProperties rewriteProps,
-                     com.zhixing.core.memory.LongTermMemoryService longTermMemory) {
+                     com.zhixing.core.memory.LongTermMemoryService longTermMemory,
+                     PermissionService permissionService) {
         this.chatClient = chatClient;
         this.retrievalEngine = retrievalEngine;
         this.sessionMapper = sessionMapper;
@@ -140,6 +146,7 @@ public class QaService {
         this.summaryProps = summaryProps;
         this.rewriteProps = rewriteProps;
         this.longTermMemory = longTermMemory;
+        this.permissionService = permissionService;
         this.promptTemplate = loadTemplate("prompts/rag-v0.md");
         this.systemTemplate = loadTemplate("prompts/rag-system-v1.md");
     }
@@ -156,6 +163,9 @@ public class QaService {
     // ===== 入口：同步做廉价的会话准备（失败走全局异常翻译成 Result），链路本身异步 =====
 
     public SseEmitter streamQa(QaStreamRequest req) {
+        // 权限在 service 入口（02 §B2 调用点清单）：异常走全局异常处理器翻译为 A0006，
+        // 不产生 SSE——通过后才进入会话准备与异步链路
+        permissionService.requireAccess(req.getKbId());
         long sessionId = ensureSession(req);
         long userMsgId = saveUserMessage(sessionId, req.getQuestion());
         SseEmitter emitter = new SseEmitter(qaProps.getEmitterTimeoutMs());
@@ -431,6 +441,8 @@ public class QaService {
         QaSession session = new QaSession();
         session.setId(IdUtil.getSnowflakeNextId());
         session.setTitle(truncate(req.getQuestion(), TITLE_MAX_LENGTH));
+        // 操作者维度回填（V4 §④）：v2.0 起新会话必填（AuthFilter 保证请求已认证）
+        session.setUserId(AuthContext.current().id());
         session.setCreatedAt(LocalDateTime.now());
         session.setUpdatedAt(LocalDateTime.now());
         sessionMapper.insert(session);

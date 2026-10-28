@@ -1,6 +1,8 @@
 package com.zhixing.common;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
@@ -13,6 +15,10 @@ import org.springframework.web.servlet.resource.NoResourceFoundException;
 /**
  * 全局异常翻译官：把所有异常统一翻译成 Result。
  * DL-3 决策：HTTP 状态码恒为 200，错误语义全在业务码里——前端只写一套"解析 code"的逻辑。
+ *
+ * <p>v2.0 认证段例外（02 §B1-B3）：A0005/A0006/A0007 额外映射真实 HTTP 状态
+ * （401/403/429）——与 AuthFilter 的 401 对齐，安全语义对工具链（网关/巡检/矩阵测试）
+ * 可见；body 仍是 Result 协议，前端解析逻辑不变。
  */
 @Slf4j
 @RestControllerAdvice
@@ -20,9 +26,19 @@ public class GlobalExceptionHandler {
 
     /** 业务异常：预期内的失败，warn 级别足够，不打堆栈。 */
     @ExceptionHandler(BusinessException.class)
-    public Result<Void> handleBusinessException(BusinessException e) {
+    public ResponseEntity<Result<Void>> handleBusinessException(BusinessException e) {
         log.warn("business error [{}]: {}", e.getErrorCode().code(), e.getMessage());
-        return Result.fail(e.getErrorCode(), e.getMessage());
+        return ResponseEntity.status(httpStatusOf(e.getErrorCode().code()))
+                .body(Result.fail(e.getErrorCode(), e.getMessage()));
+    }
+
+    private static HttpStatus httpStatusOf(String code) {
+        return switch (code) {
+            case "A0005" -> HttpStatus.UNAUTHORIZED;
+            case "A0006" -> HttpStatus.FORBIDDEN;
+            case "A0007" -> HttpStatus.TOO_MANY_REQUESTS;
+            default -> HttpStatus.OK;
+        };
     }
 
     /** 参数校验失败：取第一个字段错误给前端（A0000）。 */

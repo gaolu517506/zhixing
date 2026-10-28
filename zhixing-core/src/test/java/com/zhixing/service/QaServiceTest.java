@@ -35,6 +35,7 @@ import com.zhixing.infra.llm.dto.ChatResponse;
 import com.zhixing.infra.llm.dto.ChatUsage;
 import com.zhixing.infra.sse.SseEventSink;
 import com.zhixing.infra.trace.TraceRecorder;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -132,8 +133,15 @@ class QaServiceTest {
         }
     }
 
+    @AfterEach
+    void clearAuth() {
+        com.zhixing.common.auth.AuthContext.clear();
+    }
+
     @BeforeEach
     void setUp() {
+        com.zhixing.common.auth.AuthContext.set(
+                new com.zhixing.common.auth.CurrentUser(1L, "tester", "USER", com.zhixing.common.auth.AuthChannel.WEB));
         sessionMapper = mock(QaSessionMapper.class);
         messageMapper = mock(QaMessageMapper.class);
         traceRunMapper = mock(TraceRunMapper.class);
@@ -181,7 +189,8 @@ class QaServiceTest {
         return new QaService(fakeChat, retrievalEngine, sessionMapper, messageMapper,
                 new TraceRecorder(traceRunMapper, traceNodeMapper, traceProps),
                 new RetrieveProperties(), new QaProperties(), new ObjectMapper(), Runnable::run,
-                memory, summarizer, rewriter, new SummaryProperties(), rewriteProps, longTermMemory);
+                memory, summarizer, rewriter, new SummaryProperties(), rewriteProps, longTermMemory,
+                mock(PermissionService.class));
     }
 
     private static QaStreamRequest request() {
@@ -299,7 +308,8 @@ class QaServiceTest {
                 new RetrieveProperties(), new QaProperties(), new ObjectMapper(), Runnable::run,
                 new SessionMemory(sessionMapper, messageMapper, new MemoryProperties()),
                 new Summarizer(fakeChat, new SummaryProperties()),
-                new NoopQueryRewriter(), new SummaryProperties(), new RewriteProperties(), memoryStub());
+                new NoopQueryRewriter(), new SummaryProperties(), new RewriteProperties(), memoryStub(),
+                mock(PermissionService.class));
 
         service.runQa(request(), 1L, 100L, sink);
 

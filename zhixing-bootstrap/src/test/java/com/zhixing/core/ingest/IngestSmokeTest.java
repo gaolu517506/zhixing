@@ -44,6 +44,18 @@ class IngestSmokeTest {
     /** 冒烟②：上传 PDF → 轮询 60s 内到 COMPLETED 且 chunk_count > 0（详设 §1 验收 1 的收缩版）。 */
     @Test
     void 冒烟_上传PDF到COMPLETED且分块大于0() throws Exception {
+        // v2.0 权限接线：createKb/upload 在 service 入口判身份（建库人自动成为库管理员，链路自洽）
+        com.zhixing.common.auth.AuthContext.set(new com.zhixing.common.auth.CurrentUser(
+                cn.hutool.core.util.IdUtil.getSnowflakeNextId(), "ingest-smoke", "USER",
+                com.zhixing.common.auth.AuthChannel.WEB));
+        try {
+        runSmoke();
+        } finally {
+            com.zhixing.common.auth.AuthContext.clear();
+        }
+    }
+
+    private void runSmoke() throws Exception {
         KbKnowledgeBase kb = kbService.createKb("冒烟-入库线-" + System.currentTimeMillis(), null);
         byte[] pdf = MinimalPdf.onePage(
                 "Xiaomi 15 Ultra battery is 6000mAh with 90W wired charging and IP68 rating. "

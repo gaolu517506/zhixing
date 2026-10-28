@@ -11,6 +11,7 @@ import com.zhixing.dao.entity.QaMessage;
 import com.zhixing.dao.mapper.AgentRunMapper;
 import com.zhixing.dao.mapper.QaMessageMapper;
 import com.zhixing.dao.mapper.QaSessionMapper;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -38,8 +39,15 @@ class AgentServiceMemoryInjectionTest {
 
     private AgentService service;
 
+    @AfterEach
+    void clearAuth() {
+        com.zhixing.common.auth.AuthContext.clear();
+    }
+
     @BeforeEach
     void setUp() {
+        com.zhixing.common.auth.AuthContext.set(
+                new com.zhixing.common.auth.CurrentUser(1L, "tester", "USER", com.zhixing.common.auth.AuthChannel.WEB));
         engine = mock(ReActEngine.class);
         messageMapper = mock(QaMessageMapper.class);
         longTermMemory = mock(com.zhixing.core.memory.LongTermMemoryService.class);
@@ -50,7 +58,8 @@ class AgentServiceMemoryInjectionTest {
         service = new AgentService(engine, mock(ConfirmManager.class), mock(ToolRegistry.class),
                 mock(ToolExecutor.class), mock(AgentRunMapper.class), sessionMapper,
                 messageMapper, new AgentProperties(), Runnable::run, longTermMemory,
-                mock(com.zhixing.infra.trace.TraceRecorder.class));
+                mock(com.zhixing.infra.trace.TraceRecorder.class),
+                mock(PermissionService.class), mock(AuditRecorder.class));
     }
 
     private AgentRunRequest request() {

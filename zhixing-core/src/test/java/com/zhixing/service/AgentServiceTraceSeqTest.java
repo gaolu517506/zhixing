@@ -91,7 +91,7 @@ class AgentServiceTraceSeqTest {
                 toolExecutor, runMapper, mock(QaSessionMapper.class),
                 mock(QaMessageMapper.class), new AgentProperties(), Runnable::run,
                 mock(com.zhixing.core.memory.LongTermMemoryService.class),
-                traceRecorder);
+                traceRecorder, mock(PermissionService.class), mock(AuditRecorder.class));
     }
 
     @Test

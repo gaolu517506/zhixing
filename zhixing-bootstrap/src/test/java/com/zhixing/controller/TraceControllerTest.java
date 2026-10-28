@@ -44,6 +44,14 @@ class TraceControllerTest {
     @Autowired
     private TraceNodeMapper nodeMapper;
 
+    @Autowired
+    private com.zhixing.dao.mapper.AuthUserMapper authUserMapper;
+
+    @Autowired
+    private com.zhixing.dao.mapper.AuthSessionMapper authSessionMapper;
+
+    private com.zhixing.TestAuth.SeededUser admin;
+
     private long qaRunId;
 
     private long ingestRunId;
@@ -52,6 +60,8 @@ class TraceControllerTest {
 
     @BeforeEach
     void seed() {
+        // v2.0 起 AuthFilter 生效：MockMvc 请求全部带系统管理员身份（详情归属断言对其透明）
+        admin = com.zhixing.TestAuth.seed(authUserMapper, authSessionMapper, "trace-admin-" + System.nanoTime(), "ADMIN");
         qaRunId = seedRun("QA", 3210L, "COMPLETED", null);
         node(qaRunId, "vector_search", 1, "x".repeat(2500));
         node(qaRunId, "llm_chat", 2, "ok");
@@ -60,6 +70,7 @@ class TraceControllerTest {
 
     @AfterEach
     void cleanup() {
+        com.zhixing.TestAuth.cleanup(authUserMapper, authSessionMapper, admin);
         for (Long runId : seededRunIds) {
             nodeMapper.delete(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<TraceNode>()
                     .eq(TraceNode::getRunId, runId));
@@ -98,6 +109,7 @@ class TraceControllerTest {
     @Test
     void 列表_bizType过滤且包含播种run_id为字符串() throws Exception {
         MvcResult result = mockMvc.perform(get("/api/trace/runs")
+                        .header("Authorization", com.zhixing.TestAuth.bearer(admin))
                         .param("bizType", "QA").param("page", "1").param("size", "100"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("0"))
@@ -117,6 +129,7 @@ class TraceControllerTest {
     @Test
     void 列表_分页size生效() throws Exception {
         MvcResult result = mockMvc.perform(get("/api/trace/runs")
+                        .header("Authorization", com.zhixing.TestAuth.bearer(admin))
                         .param("bizType", "INGEST").param("page", "1").param("size", "1"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.items.length()").value(1))
@@ -131,7 +144,8 @@ class TraceControllerTest {
 
     @Test
     void 详情_nodes按seq排序且input截断200字符() throws Exception {
-        MvcResult result = mockMvc.perform(get("/api/trace/runs/" + qaRunId))
+        MvcResult result = mockMvc.perform(get("/api/trace/runs/" + qaRunId)
+                .header("Authorization", com.zhixing.TestAuth.bearer(admin)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.run.id").value(String.valueOf(qaRunId)))
                 .andExpect(jsonPath("$.data.run.bizId").value(3210))
@@ -150,7 +164,8 @@ class TraceControllerTest {
 
     @Test
     void 详情不存在_返回A0000业务码() throws Exception {
-        mockMvc.perform(get("/api/trace/runs/999999999"))
+        mockMvc.perform(get("/api/trace/runs/999999999")
+                .header("Authorization", com.zhixing.TestAuth.bearer(admin)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("A0000"))
                 .andExpect(jsonPath("$.message").value("Trace run 不存在：999999999"));
