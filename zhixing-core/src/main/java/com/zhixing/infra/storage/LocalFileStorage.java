@@ -5,6 +5,7 @@ import com.zhixing.common.BusinessException;
 import com.zhixing.common.ErrorCode;
 import com.zhixing.config.StorageProperties;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -14,9 +15,11 @@ import java.nio.file.Path;
 
 /**
  * 本地磁盘存储实现。根目录相对路径基于进程工作目录解析（默认 data/files）。
+ * v2.0 起与 MinioFileStorage 按 zhixing.storage.type 互斥装配（默认本实现，D17）。
  */
 @Slf4j
 @Component
+@ConditionalOnProperty(name = "zhixing.storage.type", havingValue = "local", matchIfMissing = true)
 public class LocalFileStorage implements FileStorage {
 
     private final Path root;
