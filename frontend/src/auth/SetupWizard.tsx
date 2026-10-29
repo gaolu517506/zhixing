@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { AuthUser, LoginResponse } from "../lib/types";
 import * as authApi from "../lib/authApi";
 import { createKnowledgeBase } from "../lib/api";
+import SeedingCard from "../components/SeedingCard";
 import { AdminStep, DoneStep, KbChoiceStep, wizardError } from "./SetupWizardSteps";
 
 /**
@@ -21,6 +22,9 @@ export default function SetupWizard({
   const [credential, setCredential] = useState<LoginResponse | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** 演示库播种进度（任务书 31-§1③）：非 null 即轮询态，COMPLETED 自动进聊天。 */
+  const [seeding, setSeeding] = useState<{ docsDone: number; docsTotal: number } | null>(null);
+  const finishRef = useRef<() => void>(() => undefined);
 
   async function handleSetup(username: string, password: string): Promise<void> {
     if (submitting) {
@@ -46,6 +50,27 @@ export default function SetupWizard({
     }
     onDone();
   }
+  finishRef.current = handleFinish;
+
+  // 种子进度轮询：COMPLETED → 自动进聊天页（任务书 31-§1③），失败回选择卡
+  useEffect(() => {
+    if (!seeding) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      authApi
+        .demoSeedProgress()
+        .then((progress) => {
+          if (progress.status === "COMPLETED") {
+            finishRef.current();
+          } else {
+            setSeeding(progress);
+          }
+        })
+        .catch(() => setSeeding(null));
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [seeding]);
 
   async function handleCreateKb(name: string): Promise<void> {
     if (submitting || !name) {
@@ -64,14 +89,14 @@ export default function SetupWizard({
   }
 
   async function handleLoadDemo(): Promise<void> {
-    if (submitting) {
+    if (submitting || seeding) {
       return;
     }
     setError(null);
     setSubmitting(true);
     try {
       await authApi.loadDemoKb();
-      setStep(3);
+      setSeeding({ docsDone: 0, docsTotal: 10 }); // 进入轮询态；COMPLETED 自动进聊天
     } catch (err) {
       setError(wizardError(err));
     } finally {
@@ -100,16 +125,19 @@ export default function SetupWizard({
           onContinue={credential ? () => setStep(2) : undefined}
         />
       )}
-      {step === 2 && (
-        <KbChoiceStep
-          submitting={submitting}
-          error={error}
-          onCreateKb={handleCreateKb}
-          onLoadDemo={handleLoadDemo}
-          onSkip={() => setStep(3)}
-          onBack={() => setStep(1)}
-        />
-      )}
+      {step === 2 &&
+        (seeding ? (
+          <SeedingCard docsDone={seeding.docsDone} docsTotal={seeding.docsTotal} />
+        ) : (
+          <KbChoiceStep
+            submitting={submitting}
+            error={error}
+            onCreateKb={handleCreateKb}
+            onLoadDemo={handleLoadDemo}
+            onSkip={() => setStep(3)}
+            onBack={() => setStep(1)}
+          />
+        ))}
       {step === 3 && <DoneStep onEnter={handleFinish} />}
     </div>
   );

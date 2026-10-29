@@ -5,6 +5,7 @@ import KbHeader from "../components/KbHeader";
 import Toast, { type ToastItem } from "../components/Toast";
 import UploadZone from "../components/UploadZone";
 import { deleteDocument, deleteKnowledgeBase, listDocuments, listKnowledgeBases, uploadDocument } from "../lib/api";
+import { errorTextOf } from "../lib/errors";
 import { isInFlight, type DocumentItem, type Id, type KbSummary } from "../lib/types";
 
 /** 选中库跨页共享（聊天页同键读写）。 */
@@ -43,7 +44,7 @@ export default function KbPage() {
           localStorage.setItem(KB_STORAGE_KEY, initial);
         }
       })
-      .catch((err: unknown) => setLoadError(err instanceof Error ? err.message : String(err)));
+      .catch((err: unknown) => setLoadError(errorTextOf(err)));
   }, []);
 
   const reload = useCallback((): void => {
@@ -55,7 +56,7 @@ export default function KbPage() {
         setDocuments(docs);
         setLoadError(null);
       })
-      .catch((err: unknown) => setLoadError(err instanceof Error ? err.message : String(err)));
+      .catch((err: unknown) => setLoadError(errorTextOf(err)));
   }, [activeKbId]);
 
   useEffect(() => {
@@ -88,7 +89,7 @@ export default function KbPage() {
           pushToast(outcome.idempotent ? "文件已存在（幂等命中）" : `已上传：${file.name}`);
           reload();
         })
-        .catch((err: unknown) => pushToast(`上传失败：${err instanceof Error ? err.message : String(err)}`))
+        .catch((err: unknown) => pushToast(`上传失败：${errorTextOf(err)}`))
         .finally(() => setUploading(false));
     },
     [uploading, activeKbId, pushToast, reload],
@@ -105,7 +106,7 @@ export default function KbPage() {
         reload();
       })
       .catch((err: unknown) => {
-        pushToast(`删除失败：${err instanceof Error ? err.message : String(err)}`);
+        pushToast(`删除失败：${errorTextOf(err)}`);
         setPendingDelete(null);
       });
   }, [pendingDelete, pushToast, reload]);
@@ -133,7 +134,7 @@ export default function KbPage() {
         }
       })
       .catch((err: unknown) => {
-        pushToast(`删除失败：${err instanceof Error ? err.message : String(err)}`);
+        pushToast(`删除失败：${errorTextOf(err)}`);
         setPendingKbDelete(null);
       });
   }, [pendingKbDelete, kbs, pushToast]);

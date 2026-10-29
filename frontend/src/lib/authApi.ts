@@ -8,6 +8,7 @@
 import { authHeaders, checkAuthFailure, UnauthorizedError } from "./auth";
 import { authMock } from "./authMock";
 import { parseResult } from "./json";
+import * as v2Mock from "./v2Mock";
 import type { AuthUser, LoginResponse, SetupStatus } from "./types";
 
 export function isAuthMockEnabled(): boolean {
@@ -37,10 +38,16 @@ export function login(username: string, password: string): Promise<LoginResponse
     : request<LoginResponse>("/api/auth/login", postJson({ username, password }));
 }
 
-export function setup(username: string, password: string): Promise<LoginResponse> {
+/** options.seedDemoKb：线 D ③ 契约占位——真实后端收 seed 标志随 setup 建演示库（本 worktree 未合入，忽略未知字段）。 */
+export function setup(
+  username: string,
+  password: string,
+  options?: { seedDemoKb?: boolean },
+): Promise<LoginResponse> {
+  const body = { username, password, ...(options?.seedDemoKb ? { seedDemoKb: true } : {}) };
   return isAuthMockEnabled()
     ? authMock.setup({ username, password })
-    : request<LoginResponse>("/api/auth/setup", postJson({ username, password }));
+    : request<LoginResponse>("/api/auth/setup", postJson(body));
 }
 
 export function me(): Promise<AuthUser> {
@@ -57,10 +64,25 @@ export function logout(): Promise<void> {
   return isAuthMockEnabled() ? authMock.logout() : request<void>("/api/auth/logout", { method: "POST" });
 }
 
-/** 加载演示库（F8 第二步可选动作，真实端点契约待对齐——失败由向导内联提示并可跳过）。 */
+/**
+ * 加载演示库（F8 第二步「加载演示库」卡片，任务书 31-§1③）：demo 态由 v2Mock 起种子
+ * 状态机；真实态 POST /api/kb/demo（M1 既定假设端点），进度轮询走 demoSeedProgress。
+ */
 export function loadDemoKb(): Promise<void> {
   if (isAuthMockEnabled()) {
-    return authMock.loadDemoKb();
+    v2Mock.startSeed();
+    return Promise.resolve();
   }
   return request<void>("/api/kb/demo", { method: "POST" });
+}
+
+/**
+ * 演示库种子进度（任务书 31-§1③「种子进度轮询到 COMPLETED 后自动进聊天页」）。
+ * 真实端点为假设契约 GET /api/demo/seed-progress——线 D ③ 未合入，联调对齐点（见收工报告）。
+ */
+export function demoSeedProgress(): Promise<{ status: string; docsDone: number; docsTotal: number }> {
+  if (isAuthMockEnabled()) {
+    return v2Mock.seedProgress();
+  }
+  return request<{ status: string; docsDone: number; docsTotal: number }>("/api/demo/seed-progress");
 }

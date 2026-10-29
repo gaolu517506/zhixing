@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import type { ChatMessage } from "../components/MessageBubble";
 import { streamQa } from "../lib/api";
+import { errorMessageFor } from "../lib/errors";
 import type { Id } from "../lib/types";
 
 interface RagTurnOptions {
@@ -65,7 +66,8 @@ export function useRagTurn({ setMessages, onSessionAdopt }: RagTurnOptions): {
               return next;
             }),
           onSources: (sources) => patchAssistant({ sources }),
-          onError: ({ code, message }) => patchAssistant({ error: `[${code}] ${message}`, streaming: false }),
+          // F9 全量接线：三段错误码 → 面向用户文案（A 指引 / B 安抚 / C 按类型细分）
+          onError: ({ code, message }) => patchAssistant({ error: errorMessageFor(code, message), streaming: false }),
           onDone: () => {
             patchAssistant({ streaming: false });
             onSessionAdopt();
