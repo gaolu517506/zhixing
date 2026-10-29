@@ -69,7 +69,9 @@ zhixing:
       secret-key: ${MINIO_SECRET_KEY:}
       bucket: zhixing
   demo:
-    seed-enabled: true                      # 首启向导可选「加载演示库」（F8）；classpath 内置演示文档，docs/ 不入库
+    seed-enabled: true                      # 首启向导可选「加载演示库」（F8）；classpath 内置演示文档（resources/demo/），docs/ 不入库
+    kb-name: 演示库                          # 种子库显示名
+    docs-pattern: classpath:demo/*          # 种子文档 classpath 模式
   ingest:
     pool-core: 2                            # 入库异步线程池（有界队列 64 + CallerRuns 背压）
     pool-max: 4
@@ -92,6 +94,9 @@ zhixing:
     key: local-eval-key                     # X-Eval-Key 比对值（生产环境务必改掉）
     set-path: docs/scenario/eval-set.jsonl  # 评估集路径（EvalRunner 读）
     kb-id: 2110626172473077760              # 评估目标知识库（场景包评估库，ingest-ready 清洗版 10 篇）
+    pool-core: 1                            # 验收向导执行池（F6，与检索池隔离——评测不饿死在线问答）
+    pool-max: 2
+    max-inline-set-chars: 200000            # 内联评估集字符护栏
   trace:
     enabled: true                           # Trace 埋点总开关（压测/生产可关）
     max-text-length: 2000                   # node input/output 落库截断
