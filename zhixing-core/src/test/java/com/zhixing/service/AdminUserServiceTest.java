@@ -121,7 +121,7 @@ class AdminUserServiceTest {
     }
 
     @Test
-    void 重置密码落BCrypt哈希() {
+    void 重置密码落BCrypt哈希_RESET_PASSWORD审计() {
         AuthContext.set(ADMIN);
         when(userMapper.selectById(9L)).thenReturn(user(9L, "bob", "ACTIVE"));
 
@@ -131,6 +131,12 @@ class AdminUserServiceTest {
         verify(userMapper).updateById(captor.capture());
         assertThat(captor.getValue().getPasswordHash()).startsWith("$2");
         assertThat(captor.getValue().getPasswordHash()).isNotEqualTo("new-pass-99");
+        // 高危凭据操作落审计（DL-29 扩枚举）：detail 带 target 用户名，不含新密码
+        ArgumentCaptor<String> action = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> detail = ArgumentCaptor.forClass(String.class);
+        verify(audit).record(any(), any(), action.capture(), any(), any(), any(), detail.capture());
+        assertThat(action.getValue()).isEqualTo("RESET_PASSWORD");
+        assertThat(detail.getValue()).contains("bob").doesNotContain("new-pass-99");
     }
 
     @Test

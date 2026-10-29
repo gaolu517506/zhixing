@@ -25,7 +25,8 @@ import java.util.Map;
  * 禁用/启用接线 USER_DISABLE/USER_ENABLE 审计；禁用即失效语义由线 A 校验链承接（查 status）。
  *
  * <p>防自锁：不允许禁用自己（否则唯一的系统管理员可能把整个后台锁死）。
- * 重置密码不在 14 类审计事件枚举内（02 §B3 闭合集合），不落审计事件——是否扩展枚举由 lead 裁决。
+ * 重置密码落 RESET_PASSWORD 审计（v2.0 维护线 DL-29 扩枚举接线——高危凭据操作与
+ * 禁用/启用同级，审计完整性优先）。
  */
 @Slf4j
 @Service
@@ -156,6 +157,9 @@ public class AdminUserService {
                 }
                 patch.setPasswordHash(BCrypt.hashpw(newPassword));
                 userMapper.updateById(patch);
+                String detailJson = targetDetailJson(user.getUsername());
+                audit.record(caller.id(), caller.username(), AuditAction.RESET_PASSWORD.name(),
+                        "USER", String.valueOf(userId), AuditResult.OK, detailJson);
                 log.info("管理员 {} 重置用户 {} 的密码", caller.username(), user.getUsername());
             }
             default -> throw new BusinessException(ErrorCode.CLIENT_ERROR,

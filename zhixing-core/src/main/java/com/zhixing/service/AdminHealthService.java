@@ -165,9 +165,11 @@ public class AdminHealthService {
             Field bucketField = MinioFileStorage.class.getDeclaredField("bucket");
             bucketField.setAccessible(true);
             String bucket = String.valueOf(bucketField.get(fileStorage));
-            Object args = Class.forName("io.minio.BucketExistsArgs")
+            Object builder = Class.forName("io.minio.BucketExistsArgs")
                     .getMethod("builder").invoke(null);
-            args.getClass().getMethod("bucket", String.class).invoke(args, bucket);
+            builder.getClass().getMethod("bucket", String.class).invoke(builder, bucket);
+            // SDK 签名 bucketExists(BucketExistsArgs)——builder 必须 build()（DL-29 冒烟修复：原直传 Builder NoSuchMethod 被吞成 null）
+            Object args = builder.getClass().getMethod("build").invoke(builder);
             return (Boolean) client.getClass()
                     .getMethod("bucketExists", args.getClass())
                     .invoke(client, args);

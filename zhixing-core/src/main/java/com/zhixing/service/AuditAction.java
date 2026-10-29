@@ -5,10 +5,11 @@ package com.zhixing.service;
  * 新事件必须在此追加，不落枚举的字符串不得入库。
  *
  * <p>触发点属地：LOGIN、LOGOUT、KB_CREATE、KB_DELETE、DOC_UPLOAD、DOC_DELETE、
- * AGENT_CONFIRM_APPROVE/REJECT 在本线（T6-0-A）接线；
+ * AGENT_CONFIRM_APPROVE/REJECT 在线 A（T6-0-A）接线；
  * TOKEN_ISSUE/TOKEN_REVOKE 属线 B（api_token）；USER_DISABLE/USER_ENABLE、EVAL_RUN、
- * PERMISSION_CHANGE 属管理后台/评测线（02 §B6/B7 端点落地时接线）——枚举先闭合，
- * 各线只管调用，取值域不漂移。
+ * PERMISSION_CHANGE 属管理后台/评测线（T6-0-D 接线）；
+ * RESET_PASSWORD 属管理后台用户管理（v2.0 维护线 DL-29 扩枚举接线——高危凭据操作
+ * 与 DISABLE/ENABLE 同级，审计完整性优先于枚举闭合性，02 §B3 已随 DL-29 勘误）。
  */
 public enum AuditAction {
     LOGIN,
@@ -24,5 +25,6 @@ public enum AuditAction {
     TOKEN_REVOKE,
     USER_DISABLE,
     USER_ENABLE,
-    EVAL_RUN
+    EVAL_RUN,
+    RESET_PASSWORD
 }
