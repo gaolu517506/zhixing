@@ -8,6 +8,7 @@ import {
   reduceToolResult,
 } from "../lib/agentTimeline";
 import type { AgentConfirmRequest, AgentTimeline, Id, QaDone } from "../lib/types";
+import { errorMessageFor } from "../lib/errors";
 
 export type AgentPhase = "idle" | "running" | "awaiting-confirm" | "finished" | "stopped" | "failed";
 
@@ -70,7 +71,8 @@ export function useAgentRun() {
       },
       onCancel: () => setState((prev) => ({ ...prev, phase: "stopped" })),
       onError: (data) =>
-        setState((prev) => ({ ...prev, phase: "failed", error: `[${data.code}] ${data.message}` })),
+        // F9 全量接线：三段错误码 → 面向用户文案（A 指引 / B 安抚 / C 按类型细分）
+        setState((prev) => ({ ...prev, phase: "failed", error: errorMessageFor(data.code, data.message) })),
       onDone: (data) => {
         // done 是纯收尾信号：保留已抵达的终态语义（stopped/failed 不被覆盖成 finished，
         // 否则 cancel+done / error+done 的终态语义会在最后一拍被抹掉——实测取消路径踩中）

@@ -13,18 +13,14 @@ function fieldStyle(): string {
 }
 
 export function AdminStep({
-  completedAs,
   submitting,
   error,
   onSubmit,
-  onContinue,
 }: {
-  completedAs: string | null;
   submitting: boolean;
   error: string | null;
-  onSubmit: (username: string, password: string) => Promise<void>;
-  /** 完成态的继续入口（回退到本步时的出路，每步可回退也须可前进）。 */
-  onContinue?: () => void;
+  /** 仅收集凭据——setup 延迟到第二步按所选路径触发（建库卡需先有会话才能调 /api/kb）。 */
+  onSubmit: (username: string, password: string) => Promise<void> | void;
 }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -36,60 +32,40 @@ export function AdminStep({
 
   return (
     <form className="space-y-4" onSubmit={handleSubmit}>
-      <p className="text-sm text-slate-500">第一步：创建系统管理员账号</p>
-      {completedAs ? (
-        <p className="rounded-md bg-green-50 px-3 py-2 text-sm text-green-700">
-          管理员 {completedAs} 已创建
-        </p>
-      ) : (
-        <>
-          <div>
-            <label htmlFor="setup-username" className="block text-sm text-slate-600">
-              管理员账号
-            </label>
-            <input
-              id="setup-username"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              autoComplete="username"
-              className={fieldStyle()}
-            />
-          </div>
-          <div>
-            <label htmlFor="setup-password" className="block text-sm text-slate-600">
-              密码（至少 6 位）
-            </label>
-            <input
-              id="setup-password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoComplete="new-password"
-              className={fieldStyle()}
-            />
-          </div>
-        </>
-      )}
+      <p className="text-sm text-slate-500">第一步：设置管理员账号与密码（账号在下一步选择初始化方式时创建）</p>
+      <div>
+        <label htmlFor="setup-username" className="block text-sm text-slate-600">
+          管理员账号
+        </label>
+        <input
+          id="setup-username"
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+          autoComplete="username"
+          className={fieldStyle()}
+        />
+      </div>
+      <div>
+        <label htmlFor="setup-password" className="block text-sm text-slate-600">
+          密码（至少 6 位）
+        </label>
+        <input
+          id="setup-password"
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          autoComplete="new-password"
+          className={fieldStyle()}
+        />
+      </div>
       {error && <p className="text-sm text-red-600">{error}</p>}
-      {completedAs ? (
-        onContinue && (
-          <button
-            type="button"
-            onClick={onContinue}
-            className="w-full rounded-md bg-slate-900 py-2 text-sm text-white hover:bg-slate-700"
-          >
-            继续
-          </button>
-        )
-      ) : (
-        <button
-          type="submit"
-          disabled={submitting}
-          className="w-full rounded-md bg-slate-900 py-2 text-sm text-white hover:bg-slate-700 disabled:opacity-50"
-        >
-          {submitting ? "创建中…" : "创建并继续"}
-        </button>
-      )}
+      <button
+        type="submit"
+        disabled={submitting || !username.trim() || password.length < 6}
+        className="w-full rounded-md bg-slate-900 py-2 text-sm text-white hover:bg-slate-700 disabled:opacity-50"
+      >
+        下一步
+      </button>
     </form>
   );
 }

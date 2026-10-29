@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { getTraceRun, listTraceRuns } from "../lib/api";
+import { errorTextOf } from "../lib/errors";
 import { formatTime } from "../lib/format";
 import type { TraceRunDetail, TraceRunItem } from "../lib/types";
 
@@ -62,7 +63,7 @@ export default function TracePage() {
       getTraceRun(run.id)
         .then((detail) => setSelected({ runId: run.id, detail, error: null }))
         .catch((err: unknown) =>
-          setSelected({ runId: run.id, detail: null, error: err instanceof Error ? err.message : String(err) }),
+          setSelected({ runId: run.id, detail: null, error: errorTextOf(err) }),
         );
     },
     [selected?.runId],

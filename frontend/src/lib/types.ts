@@ -188,9 +188,12 @@ export interface AuthUser {
 export interface LoginResponse {
   token: string;
   user: AuthUser;
+  /** 首启向导扩展（02 §B8 冻结契约）：仅 setup 且真实播种演示库时非空。 */
+  seededKbId?: string | null;
 }
 
-/** GET /api/auth/setup-status（02-技术方案 §B1：user 表为空时 needSetup=true）。 */
+/** GET /api/auth/setup-status（02 §B1 + §B8 冻结契约：seedAvailable=演示种子能力诚实呈现）。 */
 export interface SetupStatus {
   needSetup: boolean;
+  seedAvailable?: boolean;
 }

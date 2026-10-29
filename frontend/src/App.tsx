@@ -1,22 +1,36 @@
 import { NavLink, Navigate, Outlet, Route, Routes, useNavigate } from "react-router-dom";
 import ChatPage from "./pages/ChatPage";
+import EvalPage from "./pages/EvalPage";
 import KbPage from "./pages/KbPage";
 import TracePage from "./pages/TracePage";
 import ForbiddenPage from "./pages/ForbiddenPage";
 import LoginPage from "./pages/LoginPage";
+import AdminPage from "./pages/admin/AdminPage";
+import AdminAuditPage from "./pages/admin/AdminAuditPage";
+import AdminHealthPage from "./pages/admin/AdminHealthPage";
+import AdminKbPermsPage from "./pages/admin/AdminKbPermsPage";
+import AdminUsersPage from "./pages/admin/AdminUsersPage";
+import RequireAdmin from "./auth/RequireAdmin";
 import RequireAuth from "./auth/RequireAuth";
 import { AuthProvider, useAuth } from "./auth/AuthContext";
 
+/** 基础导航（全员）+ 管理导航（仅系统 ADMIN 显隐——隐藏是体验，后端 403 是权限）。 */
 const NAV_ITEMS = [
   { to: "/chat", label: "聊天" },
   { to: "/kb", label: "知识库" },
   { to: "/trace", label: "Trace 观测" },
 ];
 
+const ADMIN_NAV_ITEMS = [
+  { to: "/eval", label: "验收向导" },
+  { to: "/admin/users", label: "管理后台" },
+];
+
 /** 主布局（PRD §5.1 应用壳）：左侧导航 + 顶栏（当前用户 · 退出）。 */
 function Shell() {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
+  const isAdmin = user?.systemRole === "ADMIN";
 
   async function handleSignOut(): Promise<void> {
     await signOut();
@@ -29,7 +43,7 @@ function Shell() {
         <div className="flex items-center gap-6">
           <span className="text-base font-semibold tracking-wide text-slate-800">知行 Zhixing</span>
           <nav className="flex gap-1">
-            {NAV_ITEMS.map((item) => (
+            {[...NAV_ITEMS, ...(isAdmin ? ADMIN_NAV_ITEMS : [])].map((item) => (
               <NavLink
                 key={item.to}
                 to={item.to}
@@ -80,6 +94,23 @@ export default function App() {
           <Route path="/chat" element={<ChatPage />} />
           <Route path="/kb" element={<KbPage />} />
           <Route path="/trace" element={<TracePage />} />
+          <Route
+            element={
+              <RequireAdmin>
+                {/* 外层 Shell 已提供应用壳；此处只叠加 ADMIN 权限闸（双壳会在真机出现双导航条） */}
+                <Outlet />
+              </RequireAdmin>
+            }
+          >
+            <Route path="/eval" element={<EvalPage />} />
+            <Route path="/admin" element={<AdminPage />}>
+              <Route index element={<Navigate to="/admin/users" replace />} />
+              <Route path="users" element={<AdminUsersPage />} />
+              <Route path="kb-perms" element={<AdminKbPermsPage />} />
+              <Route path="audit" element={<AdminAuditPage />} />
+              <Route path="health" element={<AdminHealthPage />} />
+            </Route>
+          </Route>
         </Route>
         <Route path="*" element={<ForbiddenPage />} />
       </Routes>
