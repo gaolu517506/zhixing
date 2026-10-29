@@ -68,6 +68,10 @@ public class AdminKbAdminService {
     public record KbPermissionView(Long kbId, String kbName, String visibility, List<MemberView> members) {
     }
 
+    /** 管理台全库列表项（02 §B7 冻结契约）：/api/kb 只含调用者可见库，看不见非全员 PRIVATE 库，故单列端点。 */
+    public record KbAdminView(Long id, String name, String visibility, LocalDateTime createdAt) {
+    }
+
     public record MemberUpsert(Long userId, String role) {
     }
 
@@ -78,6 +82,17 @@ public class AdminKbAdminService {
     }
 
     // ===== 查询 =====
+
+    /** 系统 ADMIN 全库列表（管理台库权限页下拉；createdAt 倒序）。 */
+    public List<KbAdminView> listAllKbs() {
+        requireSystemAdmin();
+        return kbMapper.selectList(new LambdaQueryWrapper<KbKnowledgeBase>()
+                        .orderByDesc(KbKnowledgeBase::getCreatedAt)
+                        .orderByDesc(KbKnowledgeBase::getId))
+                .stream()
+                .map(kb -> new KbAdminView(kb.getId(), kb.getName(), kb.getVisibility(), kb.getCreatedAt()))
+                .toList();
+    }
 
     public KbPermissionView members(long kbId) {
         requireSystemAdmin();

@@ -8,7 +8,9 @@ import com.zhixing.common.BusinessException;
 import com.zhixing.common.ErrorCode;
 import com.zhixing.common.auth.AuthContext;
 import com.zhixing.common.auth.CurrentUser;
+import com.zhixing.dao.entity.AuditEvent;
 import com.zhixing.dao.entity.AuthUser;
+import com.zhixing.dao.mapper.AuditEventMapper;
 import com.zhixing.dao.mapper.AuthUserMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -39,22 +41,30 @@ public class AdminUserService {
 
     private final AuthUserMapper userMapper;
 
+    private final AuditEventMapper auditMapper;
+
     private final AuditRecorder audit;
 
     private final ObjectMapper objectMapper;
 
-    public AdminUserService(AuthUserMapper userMapper, AuditRecorder audit, ObjectMapper objectMapper) {
+    public AdminUserService(AuthUserMapper userMapper, AuditEventMapper auditMapper,
+                            AuditRecorder audit, ObjectMapper objectMapper) {
         this.userMapper = userMapper;
+        this.auditMapper = auditMapper;
         this.audit = audit;
         this.objectMapper = objectMapper;
     }
 
+    /**
+     * lastLoginAt 从 LOGIN 审计事件推导（最近一次 result=OK），无独立列（02 §B7 冻结契约）；
+     * 新建邀请等从未登录过的用户为 null，前端空态「—」。create 返回的新用户恒 null（尚未登录）。
+     */
     public record UserView(Long id, String username, String status, String systemRole,
-                           LocalDateTime createdAt) {
+                           LocalDateTime lastLoginAt, LocalDateTime createdAt) {
 
-        static UserView of(AuthUser user) {
+        static UserView of(AuthUser user, LocalDateTime lastLoginAt) {
             return new UserView(user.getId(), user.getUsername(), user.getStatus(),
-                    user.getSystemRole(), user.getCreatedAt());
+                    user.getSystemRole(), lastLoginAt, user.getCreatedAt());
         }
     }
 
@@ -66,10 +76,12 @@ public class AdminUserService {
 
     public List<UserView> list() {
         requireSystemAdmin();
-        return userMapper.selectList(new LambdaQueryWrapper<AuthUser>()
-                        .orderByDesc(AuthUser::getCreatedAt)
-                        .orderByDesc(AuthUser::getId))
-                .stream().map(UserView::of).toList();
+        List<AuthUser> users = userMapper.selectList(new LambdaQueryWrapper<AuthUser>()
+                .orderByDesc(AuthUser::getCreatedAt)
+                .orderByDesc(AuthUser::getId));
+        Map<Long, LocalDateTime> lastLogin = lastLoginByUserId(
+                users.stream().map(AuthUser::getId).toList());
+        return users.stream().map(u -> UserView.of(u, lastLogin.get(u.getId()))).toList();
     }
 
     public UserView create(CreateUserRequest request) {
@@ -98,7 +110,7 @@ public class AdminUserService {
         user.setCreatedAt(LocalDateTime.now());
         userMapper.insert(user);
         log.info("管理员 {} 创建用户 {}（{}）", caller.username(), username, role);
-        return UserView.of(user);
+        return UserView.of(user, null);
     }
 
     /** action：DISABLE / ENABLE / RESET_PASSWORD（action 与字段校验在 service 收口）。 */
@@ -117,7 +129,7 @@ public class AdminUserService {
                     throw new BusinessException(ErrorCode.CLIENT_ERROR, "不能禁用当前登录账号自己");
                 }
                 if (STATUS_DISABLED.equals(user.getStatus())) {
-                    return UserView.of(user); // 幂等
+                    return UserView.of(user, null); // 幂等
                 }
                 patch.setStatus(STATUS_DISABLED);
                 userMapper.updateById(patch);
@@ -128,7 +140,7 @@ public class AdminUserService {
             }
             case "ENABLE" -> {
                 if (STATUS_ACTIVE.equals(user.getStatus())) {
-                    return UserView.of(user); // 幂等
+                    return UserView.of(user, null); // 幂等
                 }
                 patch.setStatus(STATUS_ACTIVE);
                 userMapper.updateById(patch);
@@ -149,7 +161,34 @@ public class AdminUserService {
             default -> throw new BusinessException(ErrorCode.CLIENT_ERROR,
                     "action 仅支持 DISABLE / ENABLE / RESET_PASSWORD");
         }
-        return UserView.of(userMapper.selectById(userId));
+        return UserView.of(userMapper.selectById(userId),
+                lastLoginByUserId(List.of(userId)).get(userId));
+    }
+
+    /** 最近一次成功登录时间（LOGIN + result=OK）；无审计行（从未登录）→ map 中缺席即 null。 */
+    private Map<Long, LocalDateTime> lastLoginByUserId(List<Long> userIds) {
+        if (userIds.isEmpty()) {
+            return Map.of();
+        }
+        List<AuditEvent> rows = auditMapper.selectList(new LambdaQueryWrapper<AuditEvent>()
+                .eq(AuditEvent::getAction, AuditAction.LOGIN.name())
+                .eq(AuditEvent::getResult, AuditResult.OK)
+                .in(AuditEvent::getActorId, userIds));
+        Map<Long, LocalDateTime> map = new LinkedHashMap<>();
+        if (rows == null) {
+            return map;
+        }
+        for (AuditEvent row : rows) {
+            if (row.getActorId() == null || row.getCreatedAt() == null) {
+                continue;
+            }
+            // 不依赖查询排序（防御实现差异），合并时显式取更近时间
+            LocalDateTime current = map.get(row.getActorId());
+            if (current == null || row.getCreatedAt().isAfter(current)) {
+                map.put(row.getActorId(), row.getCreatedAt());
+            }
+        }
+        return map;
     }
 
     private CurrentUser requireSystemAdmin() {

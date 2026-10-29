@@ -5,12 +5,16 @@ import com.zhixing.common.BusinessException;
 import com.zhixing.common.auth.AuthChannel;
 import com.zhixing.common.auth.AuthContext;
 import com.zhixing.common.auth.CurrentUser;
+import com.zhixing.dao.entity.AuditEvent;
 import com.zhixing.dao.entity.AuthUser;
+import com.zhixing.dao.mapper.AuditEventMapper;
 import com.zhixing.dao.mapper.AuthUserMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+
+import java.time.LocalDateTime;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -28,6 +32,8 @@ class AdminUserServiceTest {
 
     private AuthUserMapper userMapper;
 
+    private AuditEventMapper auditMapper;
+
     private AuditRecorder audit;
 
     private AdminUserService service;
@@ -38,9 +44,15 @@ class AdminUserServiceTest {
 
     @BeforeEach
     void setUp() {
+        // 纯 Mockito JVM 无 Spring 装配，LambdaQueryWrapper 需要 AuditEvent 的列缓存（生产态由 Mapper 注册时初始化）
+        com.baomidou.mybatisplus.core.metadata.TableInfoHelper.initTableInfo(
+                new org.apache.ibatis.builder.MapperBuilderAssistant(
+                        new com.baomidou.mybatisplus.core.MybatisConfiguration(), ""),
+                AuditEvent.class);
         userMapper = mock(AuthUserMapper.class);
+        auditMapper = mock(AuditEventMapper.class);
         audit = mock(AuditRecorder.class);
-        service = new AdminUserService(userMapper, audit, new ObjectMapper());
+        service = new AdminUserService(userMapper, auditMapper, audit, new ObjectMapper());
     }
 
     @AfterEach
@@ -151,5 +163,47 @@ class AdminUserServiceTest {
         verify(userMapper).insert(captor.capture());
         assertThat(captor.getValue().getPasswordHash()).startsWith("$2");
         assertThat(captor.getValue().getPasswordHash()).doesNotContain("pass-123");
+    }
+
+    @Test
+    void list_lastLoginAt从LOGIN审计推导_取最近成功登录() {
+        AuthContext.set(ADMIN);
+        AuthUser bob = user(9L, "bob", "ACTIVE");
+        bob.setCreatedAt(LocalDateTime.of(2026, 10, 1, 9, 0));
+        AuthUser carol = user(10L, "carol", "ACTIVE");
+        carol.setCreatedAt(LocalDateTime.of(2026, 10, 2, 9, 0));
+        when(userMapper.selectList(any())).thenReturn(java.util.List.of(bob, carol));
+        when(auditMapper.selectList(any())).thenReturn(java.util.List.of(
+                loginEvent(9L, LocalDateTime.of(2026, 10, 28, 8, 0)),
+                loginEvent(9L, LocalDateTime.of(2026, 10, 29, 8, 30)), // 更近一条应胜出
+                loginEvent(10L, LocalDateTime.of(2026, 10, 20, 7, 0))));
+
+        java.util.List<AdminUserService.UserView> views = service.list();
+
+        assertThat(views).extracting(AdminUserService.UserView::username)
+                .containsExactly("bob", "carol");
+        assertThat(views.get(0).lastLoginAt()).isEqualTo(LocalDateTime.of(2026, 10, 29, 8, 30));
+        assertThat(views.get(1).lastLoginAt()).isEqualTo(LocalDateTime.of(2026, 10, 20, 7, 0));
+    }
+
+    @Test
+    void list_无LOGIN审计行_lastLoginAt为null_且mapper空返回不炸() {
+        AuthContext.set(ADMIN);
+        when(userMapper.selectList(any())).thenReturn(java.util.List.of(user(9L, "bob", "ACTIVE")));
+        when(auditMapper.selectList(any())).thenReturn(null); // mock 未打桩的防御路径
+
+        java.util.List<AdminUserService.UserView> views = service.list();
+
+        assertThat(views).hasSize(1);
+        assertThat(views.get(0).lastLoginAt()).isNull();
+    }
+
+    private AuditEvent loginEvent(long userId, LocalDateTime at) {
+        AuditEvent event = new AuditEvent();
+        event.setActorId(userId);
+        event.setAction("LOGIN");
+        event.setResult("OK");
+        event.setCreatedAt(at);
+        return event;
     }
 }

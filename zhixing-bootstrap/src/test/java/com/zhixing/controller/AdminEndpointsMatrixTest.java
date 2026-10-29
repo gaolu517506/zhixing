@@ -86,6 +86,8 @@ class AdminEndpointsMatrixTest {
         expect403AsUser(get("/api/admin/health"));
         // 审计（线 A 端点，随本线一起回归）
         expect403AsUser(get("/api/admin/audit"));
+        // 全库列表（联调对齐线新增）
+        expect403AsUser(get("/api/admin/kbs"));
     }
 
     @Test
@@ -93,6 +95,7 @@ class AdminEndpointsMatrixTest {
         mockMvc.perform(get("/api/admin/users")).andExpect(status().isUnauthorized());
         mockMvc.perform(get("/api/admin/health")).andExpect(status().isUnauthorized());
         mockMvc.perform(get("/api/admin/kbs/9/members")).andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/admin/kbs")).andExpect(status().isUnauthorized());
     }
 
     @Test
@@ -107,6 +110,10 @@ class AdminEndpointsMatrixTest {
                 .andExpect(jsonPath("$.data.backend").value("UP"))
                 .andExpect(jsonPath("$.data.db.up").value(true))
                 .andExpect(jsonPath("$.data.storage.type").value("local"));
+        mockMvc.perform(get("/api/admin/kbs").header("Authorization", bearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("0"))
+                .andExpect(jsonPath("$.data").isArray());
         // 不存在的库：系统管理员过门禁后落 K1001（业务码而非 403）
         mockMvc.perform(get("/api/admin/kbs/999999999/members").header("Authorization", bearer))
                 .andExpect(status().isOk())

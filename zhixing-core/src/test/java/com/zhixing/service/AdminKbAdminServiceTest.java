@@ -168,4 +168,34 @@ class AdminKbAdminServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("visibility");
     }
+
+    @Test
+    void listAllKbs_系统ADMIN全库列表_字段映射完整() {
+        KbKnowledgeBase first = new KbKnowledgeBase();
+        first.setId(11L);
+        first.setName("演示库");
+        first.setVisibility("ALL");
+        first.setCreatedAt(java.time.LocalDateTime.of(2026, 10, 29, 12, 0));
+        KbKnowledgeBase second = new KbKnowledgeBase();
+        second.setId(12L);
+        second.setName("私库");
+        second.setVisibility("PRIVATE");
+        second.setCreatedAt(java.time.LocalDateTime.of(2026, 10, 28, 12, 0));
+        when(kbMapper.selectList(any())).thenReturn(List.of(first, second));
+
+        List<AdminKbAdminService.KbAdminView> views = service.listAllKbs();
+
+        assertThat(views).hasSize(2);
+        assertThat(views.get(0).name()).isEqualTo("演示库");
+        assertThat(views.get(0).visibility()).isEqualTo("ALL");
+        assertThat(views.get(1).id()).isEqualTo(12L);
+        assertThat(views.get(1).createdAt()).isEqualTo(java.time.LocalDateTime.of(2026, 10, 28, 12, 0));
+    }
+
+    @Test
+    void listAllKbs_非系统管理员拒绝() {
+        AuthContext.set(USER);
+        assertThatThrownBy(() -> service.listAllKbs()).isInstanceOf(BusinessException.class);
+        verify(kbMapper, never()).selectList(any());
+    }
 }

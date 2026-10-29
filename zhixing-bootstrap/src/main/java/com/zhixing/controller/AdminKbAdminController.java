@@ -13,12 +13,12 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 库权限管理 HTTP 入口（02-技术方案 §B7，F7）：成员列表/全量替换 + visibility。
+ * 库权限管理 HTTP 入口（02-技术方案 §B7，F7）：全库列表 + 成员列表/全量替换 + visibility。
  * 系统 ADMIN 门禁在 AdminKbAdminService 入口；变更落 PERMISSION_CHANGE 审计。
  */
 @Slf4j
 @RestController
-@RequestMapping("/api/admin/kbs/{kbId}")
+@RequestMapping("/api/admin")
 public class AdminKbAdminController {
 
     private final AdminKbAdminService kbAdminService;
@@ -27,13 +27,19 @@ public class AdminKbAdminController {
         this.kbAdminService = kbAdminService;
     }
 
-    @GetMapping("/members")
+    /** 管理台全库列表（联调对齐线新增，02 §B7 冻结契约）：{id, name, visibility, createdAt}。 */
+    @GetMapping("/kbs")
+    public Result<java.util.List<AdminKbAdminService.KbAdminView>> listKbs() {
+        return Result.ok(kbAdminService.listAllKbs());
+    }
+
+    @GetMapping("/kbs/{kbId}/members")
     public Result<AdminKbAdminService.KbPermissionView> members(@PathVariable long kbId) {
         return Result.ok(kbAdminService.members(kbId));
     }
 
     /** PUT 全量替换语义：以请求集为准做差量增删改（增量变更落一条 PERMISSION_CHANGE）。 */
-    @PutMapping("/members")
+    @PutMapping("/kbs/{kbId}/members")
     public Result<AdminKbAdminService.KbPermissionView> putMembers(@PathVariable long kbId,
                                                                    @Valid @RequestBody PutMembersRequest request) {
         log.info("admin kb members put: kbId={}, members={}", kbId,
@@ -42,7 +48,7 @@ public class AdminKbAdminController {
                 new AdminKbAdminService.PutMembersRequest(request.members())));
     }
 
-    @PatchMapping
+    @PatchMapping("/kbs/{kbId}")
     public Result<AdminKbAdminService.KbPermissionView> patchKb(@PathVariable long kbId,
                                                                 @Valid @RequestBody PatchKbRequest request) {
         log.info("admin kb patch: kbId={}, visibility={}", kbId, request.visibility());
