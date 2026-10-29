@@ -7,13 +7,26 @@ import { formatTime } from "../../lib/format";
 import type { AdminUser } from "../../lib/v2Types";
 
 /**
- * 用户管理（PRD §5.2⑥）：表格 + 新建邀请 + 禁用/启用/重置密码（危险操作 ConfirmDialog）。
+ * 用户管理（PRD §5.2⑥，02 §B7 冻结契约）：表格 + 新建邀请 + 禁用/启用/重置密码。
+ * 后端创建/重置必带 6~64 位密码——由前端生成随机初始密码并在操作后转告管理员
+ * （无邮件通道，诚实呈现而非假装「邀请链接已发送」）。
  */
+
+/** 生成 6~64 位随机初始密码（大小写字母+数字，首位字母保证可读）。 */
+function generateInitialPassword(): string {
+  const alphabet = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let out = "";
+  for (let i = 0; i < 10; i += 1) {
+    out += alphabet[Math.floor(Math.random() * alphabet.length)];
+  }
+  return `zx-${out}`;
+}
 export default function AdminUsersPage() {
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [username, setUsername] = useState("");
   const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const [pendingReset, setPendingReset] = useState<AdminUser | null>(null);
   const [pendingDisable, setPendingDisable] = useState<AdminUser | null>(null);
 
@@ -48,7 +61,12 @@ export default function AdminUsersPage() {
       return;
     }
     setLoadError(null);
-    run(() => inviteUser(name), () => setUsername(""));
+    const initialPassword = generateInitialPassword();
+    setNotice(null);
+    run(() => inviteUser(name, initialPassword), () => {
+      setUsername("");
+      setNotice(`已创建用户「${name}」，初始密码：${initialPassword}（请立即转告该用户）`);
+    });
   };
 
   return (
@@ -74,6 +92,9 @@ export default function AdminUsersPage() {
       </div>
 
       {loadError && <p className="mb-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-600">{loadError}</p>}
+      {notice && (
+        <p className="mb-3 rounded-md bg-green-50 px-3 py-2 font-mono text-sm text-green-700">{notice}</p>
+      )}
 
       {users.length === 0 && !loadError ? (
         <EmptyState hint="还没有用户——从新建邀请开始" />
@@ -131,6 +152,7 @@ export default function AdminUsersPage() {
         onConfirm={() => {
           const target = pendingDisable;
           setPendingDisable(null);
+          setNotice(null);
           if (target) {
             run(() => setUserStatus(target.id, "DISABLED"), () => undefined);
           }
@@ -145,7 +167,10 @@ export default function AdminUsersPage() {
           const target = pendingReset;
           setPendingReset(null);
           if (target) {
-            run(() => resetPassword(target.id), () => undefined);
+            const newPassword = generateInitialPassword();
+            run(() => resetPassword(target.id, newPassword), () => {
+              setNotice(`已重置「${target.username}」的密码，新密码：${newPassword}（请立即转告该用户）`);
+            });
           }
         }}
       />

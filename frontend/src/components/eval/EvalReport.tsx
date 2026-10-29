@@ -55,15 +55,16 @@ export default function EvalReport({ run, onRestart }: { run: EvalRun; onRestart
         <p className="mb-2 text-sm font-medium text-slate-700">难度分层 Hit@5</p>
         <table className="w-full text-sm">
           <tbody>
-            <LayerRow label="easy" layer={report.layers.easy} />
-            <LayerRow label="medium" layer={report.layers.medium} />
-            <LayerRow label="hard" layer={report.layers.hard} />
+            {(["easy", "medium", "hard"] as const)
+              .filter((key) => report.layers[key])
+              .map((key) => <LayerRow key={key} label={key} layer={report.layers[key]!} />)}
           </tbody>
         </table>
       </div>
 
       <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-700">
-        语料规模：{report.corpusSize} 篇 —— {report.corpusNote}
+        语料规模：{report.corpus.docs} 篇 / {report.corpus.chunks} 块 ——
+        内部小语料集，指标仅作回归基线，不构成对外 benchmark
       </div>
 
       <div className="flex gap-2">

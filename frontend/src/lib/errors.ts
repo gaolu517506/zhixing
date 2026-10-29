@@ -45,7 +45,7 @@ export type ModelErrorKind = "RATE_LIMITED" | "UNAUTHORIZED" | "SERVER_ERROR";
 
 const C_MESSAGES: Record<ModelErrorKind, string> = {
   RATE_LIMITED: "使用高峰，请稍后重试",
-  UNAUTHORIZED: "模型服务额度不足，请联系管理员",
+  UNAUTHORIZED: "模型服务鉴权失败，请联系管理员",
   SERVER_ERROR: "模型服务暂不可用，已自动尝试备用",
 };
 
@@ -66,7 +66,7 @@ export function modelErrorKindFromMessage(serverMessage?: string | null): ModelE
   if (text.includes("限流")) {
     return "RATE_LIMITED";
   }
-  if (text.includes("鉴权") || text.includes("额度")) {
+  if (text.includes("鉴权")) {
     return "UNAUTHORIZED";
   }
   return "SERVER_ERROR";

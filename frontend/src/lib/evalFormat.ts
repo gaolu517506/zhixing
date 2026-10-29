@@ -43,12 +43,14 @@ export function percent(value: number | string | null | undefined): string {
 
 /** 报告 → CSV 文本（客户端导出；无后端导出端点，诚实标注来源为本次运行）。 */
 export function reportToCsv(report: EvalReport, run: Pick<EvalRun, "id" | "kbId">): string {
-  const layer = (l: EvalLayer): string => `${percent(l.hitAt5)},${l.cases}`;
+  const layer = (l?: EvalLayer): string => (l ? `${percent(l.hitAt5)},${l.cases}` : ",");
   const lines = [
     "runId,kbId,metric,value",
     `${run.id},${run.kbId},hitAt5,${percent(report.hitAt5)}`,
     `${run.id},${run.kbId},recallAt5,${percent(report.recallAt5)}`,
     `${run.id},${run.kbId},mrrAt10,${percent(report.mrrAt10)}`,
+    `${run.id},${run.kbId},cases,${report.cases}`,
+    `${run.id},${run.kbId},corpus_docs,${report.corpus.docs}`,
     `${run.id},${run.kbId},easy_hitAt5,${layer(report.layers.easy)}`,
     `${run.id},${run.kbId},medium_hitAt5,${layer(report.layers.medium)}`,
     `${run.id},${run.kbId},hard_hitAt5,${layer(report.layers.hard)}`,

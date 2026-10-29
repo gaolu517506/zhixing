@@ -42,9 +42,9 @@ const doneRun: EvalRun = {
     hitAt5: 0.8,
     recallAt5: 0.8,
     mrrAt10: 0.9,
-    corpusSize: 10,
-    corpusNote: "内部小语料集（10 篇），指标仅作回归基线",
-    layers: { easy: { hitAt5: 1, cases: 3 }, medium: { hitAt5: 0.75, cases: 4 }, hard: { hitAt5: 0.5, cases: 3 } },
+    cases: 10,
+    layers: { easy: { cases: 3, hitAt5: 1 }, medium: { cases: 4, hitAt5: 0.75 }, hard: { cases: 3, hitAt5: 0.5 } },
+    corpus: { docs: 10, chunks: 64 },
     delta: { vsLastRunId: "990", hitAt5: 0.1, recallAt5: -0.05, mrrAt10: 0.05 },
   },
 };
@@ -110,13 +110,14 @@ describe("EvalReport 报告步", () => {
     expect(screen.getAllByText("80.0%").length).toBeGreaterThan(0); // Hit@5/Recall@5 同值
     expect(screen.getByText((_, el) => el?.textContent === "vs 上次(990) ↗ 10.0%")).toBeTruthy();
     expect(screen.getByText((_, el) => el?.textContent === "vs 上次(990) ↘ -5.0%")).toBeTruthy();
-    expect(screen.getByText(/语料规模：10 篇/)).toBeTruthy();
+    expect(screen.getByText(/语料规模：10 篇 \/ 64 块/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "导出 CSV" })).toBeTruthy();
   });
 
   it("CSV 导出内容包含聚合与 delta 行（reportToCsv 复用断言）", () => {
     const csv = reportToCsv(doneRun.report!, doneRun);
     expect(csv).toContain("1001,211,hitAt5,80.0%");
+    expect(csv).toContain("1001,211,corpus_docs,10");
     expect(csv).toContain("1001,990,delta_hitAt5,0.1");
   });
 });

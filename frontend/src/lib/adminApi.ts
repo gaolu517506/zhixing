@@ -36,22 +36,25 @@ export function listUsers(): Promise<AdminUser[]> {
   return isAuthMockEnabled() ? mock.listUsers() : request<AdminUser[]>("/api/admin/users");
 }
 
-export function inviteUser(username: string): Promise<AdminUser> {
+/** 创建用户（02 §B7 冻结契约：username/password/systemRole；初始密码由页面生成并转告用户）。 */
+export function inviteUser(username: string, initialPassword: string): Promise<AdminUser> {
   return isAuthMockEnabled()
     ? mock.inviteUser(username)
-    : request<AdminUser>("/api/admin/users", postJson({ username }));
+    : request<AdminUser>("/api/admin/users", postJson({ username, password: initialPassword }));
 }
 
 export function setUserStatus(id: string, status: "ACTIVE" | "DISABLED"): Promise<AdminUser> {
   return isAuthMockEnabled()
     ? mock.patchUser(id, { status })
-    : request<AdminUser>(`/api/admin/users/${id}`, patchJson({ status }));
+    : request<AdminUser>(`/api/admin/users/${id}`,
+        patchJson({ action: status === "ACTIVE" ? "ENABLE" : "DISABLE" }));
 }
 
-export function resetPassword(id: string): Promise<AdminUser> {
+/** 重置密码（冻结契约 action=RESET_PASSWORD + newPassword；新密码由页面生成并转告用户）。 */
+export function resetPassword(id: string, newPassword: string): Promise<AdminUser> {
   return isAuthMockEnabled()
     ? mock.patchUser(id, { resetPassword: true })
-    : request<AdminUser>(`/api/admin/users/${id}`, patchJson({ resetPassword: true }));
+    : request<AdminUser>(`/api/admin/users/${id}`, patchJson({ action: "RESET_PASSWORD", newPassword }));
 }
 
 // ===== 库权限 =====
@@ -60,16 +63,18 @@ export function listAdminKbs(): Promise<AdminKb[]> {
   return isAuthMockEnabled() ? mock.listAdminKbs() : request<AdminKb[]>("/api/admin/kbs");
 }
 
+/** 成员列表（冻结契约 KbPermissionView 解包 members）。 */
 export function listMembers(kbId: string): Promise<KbMember[]> {
   return isAuthMockEnabled()
     ? mock.listMembers(kbId)
-    : request<KbMember[]>(`/api/admin/kbs/${kbId}/members`);
+    : request<{ members: KbMember[] }>(`/api/admin/kbs/${kbId}/members`).then((view) => view.members);
 }
 
 export function putMembers(kbId: string, members: KbMember[]): Promise<void> {
   return isAuthMockEnabled()
     ? mock.putMembers(kbId, members)
-    : request<void>(`/api/admin/kbs/${kbId}/members`, putJson({ members }));
+    : request<void>(`/api/admin/kbs/${kbId}/members`,
+        putJson({ members: members.map((m) => ({ userId: m.userId, role: m.role })) }));
 }
 
 export function patchVisibility(kbId: string, visibility: "PRIVATE" | "ALL"): Promise<void> {

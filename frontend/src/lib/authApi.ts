@@ -3,7 +3,8 @@
  * "false"），合流联调用 `VITE_AUTH_MOCK=false npm run dev` 切真实端点。
  *
  * 真实路径与 mock 同形：POST /api/auth/login|logout|setup、GET /api/auth/me|setup-status
- * （02-技术方案 §B1 契约）；loadDemoKb 的真实端点契约待线 A/D 对齐（联调清单见收工报告）。
+ * （02-技术方案 §B1 + §B8 冻结契约：setup 可选 seed=true 随建号播种演示库，响应
+ * seededKbId 仅真实播种时非空；无独立种子触发/进度端点）。
  */
 import { authHeaders, checkAuthFailure, UnauthorizedError } from "./auth";
 import { authMock } from "./authMock";
@@ -38,13 +39,9 @@ export function login(username: string, password: string): Promise<LoginResponse
     : request<LoginResponse>("/api/auth/login", postJson({ username, password }));
 }
 
-/** options.seedDemoKb：线 D ③ 契约占位——真实后端收 seed 标志随 setup 建演示库（本 worktree 未合入，忽略未知字段）。 */
-export function setup(
-  username: string,
-  password: string,
-  options?: { seedDemoKb?: boolean },
-): Promise<LoginResponse> {
-  const body = { username, password, ...(options?.seedDemoKb ? { seedDemoKb: true } : {}) };
+/** options.seed：线 D 冻结契约——建号成功且种子可用时同步建演示库（seededKbId 非空）。 */
+export function setup(username: string, password: string, options?: { seed?: boolean }): Promise<LoginResponse> {
+  const body = { username, password, ...(options?.seed ? { seed: true } : {}) };
   return isAuthMockEnabled()
     ? authMock.setup({ username, password })
     : request<LoginResponse>("/api/auth/setup", postJson(body));
@@ -65,24 +62,21 @@ export function logout(): Promise<void> {
 }
 
 /**
- * 加载演示库（F8 第二步「加载演示库」卡片，任务书 31-§1③）：demo 态由 v2Mock 起种子
- * 状态机；真实态 POST /api/kb/demo（M1 既定假设端点），进度轮询走 demoSeedProgress。
+ * 加载演示库（F8 第二步，仅 demo 态）：v2Mock 起种子状态机供向导演示进度卡。
+ * 真实态无独立端点（02 §B8 冻结契约：种子走 setup({seed:true})），调用即拒绝。
  */
 export function loadDemoKb(): Promise<void> {
   if (isAuthMockEnabled()) {
     v2Mock.startSeed();
     return Promise.resolve();
   }
-  return request<void>("/api/kb/demo", { method: "POST" });
+  return Promise.reject(new Error("真实环境请走 setup(seed:true)，无独立演示库端点"));
 }
 
-/**
- * 演示库种子进度（任务书 31-§1③「种子进度轮询到 COMPLETED 后自动进聊天页」）。
- * 真实端点为假设契约 GET /api/demo/seed-progress——线 D ③ 未合入，联调对齐点（见收工报告）。
- */
+/** 演示库种子进度（仅 demo 态轮询）；真实态拒绝（同上）。 */
 export function demoSeedProgress(): Promise<{ status: string; docsDone: number; docsTotal: number }> {
   if (isAuthMockEnabled()) {
     return v2Mock.seedProgress();
   }
-  return request<{ status: string; docsDone: number; docsTotal: number }>("/api/demo/seed-progress");
+  return Promise.reject(new Error("真实环境无种子进度端点"));
 }

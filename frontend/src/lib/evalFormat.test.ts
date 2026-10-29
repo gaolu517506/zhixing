@@ -37,13 +37,13 @@ describe("reportToCsv", () => {
     hitAt5: 0.8,
     recallAt5: 0.8,
     mrrAt10: 0.9,
-    corpusSize: 10,
-    corpusNote: "内部小语料集（10 篇），指标仅作回归基线",
+    cases: 10,
     layers: {
-      easy: { hitAt5: 1, cases: 3 },
-      medium: { hitAt5: 0.75, cases: 4 },
-      hard: { hitAt5: 0.5, cases: 3 },
+      easy: { cases: 3, hitAt5: 1 },
+      medium: { cases: 4, hitAt5: 0.75 },
+      hard: { cases: 3, hitAt5: 0.5 },
     },
+    corpus: { docs: 10, chunks: 64 },
     delta: { vsLastRunId: "990", hitAt5: 0.1, recallAt5: -0.05, mrrAt10: 0.05 },
   };
 
@@ -51,6 +51,8 @@ describe("reportToCsv", () => {
     const csv = reportToCsv(report, { id: "1001", kbId: "211" });
     expect(csv).toContain("runId,kbId,metric,value");
     expect(csv).toContain("1001,211,hitAt5,80.0%");
+    expect(csv).toContain("1001,211,cases,10");
+    expect(csv).toContain("1001,211,corpus_docs,10");
     expect(csv).toContain("1001,211,easy_hitAt5,100.0%,3");
     expect(csv).toContain("1001,990,delta_hitAt5,0.1");
 

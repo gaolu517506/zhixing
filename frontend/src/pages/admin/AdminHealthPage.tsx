@@ -21,8 +21,8 @@ function StatusDot({ label, value }: { label: string; value: string }) {
 }
 
 /**
- * 系统健康（PRD §5.2⑥）：服务状态卡片（后端/DB/存储）+ 供应商熔断现态徽标 + 计数。
- * 供应商状态读熔断器现态，不主动 ping（02 §B7：省费用）。
+ * 系统健康（PRD §5.2⑥，02 §B7 冻结契约形态）：服务状态卡片（后端/DB ping/存储）+
+ * 供应商熔断现态徽标（数组）+ 计数四卡。供应商状态读熔断器现态，不主动 ping（省费用）。
  */
 export default function AdminHealthPage() {
   const [snapshot, setSnapshot] = useState<HealthSnapshot | null>(null);
@@ -45,7 +45,24 @@ export default function AdminHealthPage() {
           <div className="space-y-4">
             <div className="flex gap-3">
               <StatusDot label="后端" value={snapshot.backend} />
-              <StatusDot label="数据库" value={snapshot.db} />
+              <div className="flex-1 rounded-lg border border-slate-200 bg-white p-4">
+                <p className="text-xs text-slate-400">数据库</p>
+                <p
+                  className={`mt-1 flex items-center gap-2 text-sm font-medium ${
+                    snapshot.db.up ? "text-green-700" : "text-red-600"
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-2 w-2 rounded-full ${
+                      snapshot.db.up ? "bg-green-500" : "bg-red-500"
+                    }`}
+                  />
+                  {snapshot.db.up ? "UP" : "DOWN"}
+                  <span className="ml-1 text-xs font-normal text-slate-400">
+                    ping <span className="font-mono">{snapshot.db.pingMs}</span>ms
+                  </span>
+                </p>
+              </div>
               <div className="flex-1 rounded-lg border border-slate-200 bg-white p-4">
                 <p className="text-xs text-slate-400">存储（{snapshot.storage.type}）</p>
                 <p className="mt-1 text-sm font-medium text-slate-800">
@@ -58,18 +75,20 @@ export default function AdminHealthPage() {
             <div className="rounded-lg border border-slate-200 bg-white p-4">
               <p className="mb-2 text-sm font-medium text-slate-700">模型供应商熔断现态</p>
               <div className="flex flex-wrap gap-2">
-                <CircuitBadge provider={snapshot.providers.primary} />
-                <CircuitBadge provider={snapshot.providers.fallback} />
+                {snapshot.providers.map((provider) => (
+                  <CircuitBadge key={provider.name} provider={provider} />
+                ))}
               </div>
               <p className="mt-2 text-xs text-slate-400">读熔断器现态，默认不主动探测（省费用）</p>
             </div>
 
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-4 gap-3">
               {(
                 [
                   ["文档", snapshot.counts.docs],
                   ["知识库", snapshot.counts.kbs],
                   ["用户", snapshot.counts.users],
+                  ["Agent 运行", snapshot.counts.agentRuns],
                 ] as const
               ).map(([label, value]) => (
                 <div key={label} className="rounded-lg border border-slate-200 bg-white p-4">

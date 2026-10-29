@@ -1,6 +1,7 @@
 /**
- * v2.0 M2 契约类型（eval runs / admin / 种子进度）。
- * 形态依据 02-技术方案 §B6/B7 与 31-任务书 §1；线 D 未合入的端点由 demo mock 同形提供。
+ * v2.0 M2 契约类型（eval runs / admin / 种子）。
+ * 形态依据 **02-技术方案 §B6/B7 冻结契约（联调对齐线勘误，与线 D 实现同源）**；
+ * demo 态由 v2Mock 同形提供。前端 id 全程 string（后端 Long→String 全局序列化）。
  */
 
 export interface AdminUser {
@@ -10,7 +11,9 @@ export interface AdminUser {
   status: string;
   /** ADMIN / USER */
   systemRole: string;
+  /** 从 LOGIN 审计推导（02 §B7 冻结契约）；从未登录（如新建邀请）为 null。 */
   lastLoginAt: string | null;
+  createdAt?: string;
 }
 
 export interface KbMember {
@@ -25,21 +28,24 @@ export interface AdminKb {
   name: string;
   /** PRIVATE / ALL */
   visibility: string;
+  createdAt?: string;
 }
 
-/** 供应商熔断现态（02 §B7：读熔断器现态，默认不主动 ping） */
+/** 供应商熔断现态（02 §B7：读熔断器现态，默认不主动 ping）。 */
 export interface ProviderHealth {
   name: string;
   /** CLOSED / OPEN / HALF_OPEN */
   circuitState: string;
 }
 
+/** 健康聚合（02 §B7 冻结契约：db 对象、providers 数组、counts 含 agentRuns）。 */
 export interface HealthSnapshot {
   backend: string;
-  db: string;
+  db: { up: boolean; pingMs: number };
   storage: { type: string; writable: boolean; usageBytes: string };
-  providers: { primary: ProviderHealth; fallback: ProviderHealth };
-  counts: { docs: number; kbs: number; users: number };
+  providers: ProviderHealth[];
+  /** 计数后端为 Long→string 序列化，渲染直显。 */
+  counts: { docs: number | string; kbs: number | string; users: number | string; agentRuns: number | string };
 }
 
 export interface AuditItem {
@@ -71,11 +77,14 @@ export interface AuditFilter {
   size?: number;
 }
 
-// ===== eval runs（§B6）=====
+// ===== eval runs（§B6 冻结契约）=====
 
+/** 难度分层（report.layers 内按 easy/medium/hard 键取；该层无题时键可缺席）。 */
 export interface EvalLayer {
-  hitAt5: number;
   cases: number;
+  hitAt5: number;
+  recallAt5?: number;
+  mrrAt10?: number;
 }
 
 export interface EvalDelta {
@@ -85,18 +94,19 @@ export interface EvalDelta {
   mrrAt10: number;
 }
 
+/** EvalRunView.report（JSONB 字符串解析后）：语料规模诚实标注以 corpus 快照呈现。 */
 export interface EvalReport {
   hitAt5: number;
   recallAt5: number;
   mrrAt10: number;
-  /** 语料规模诚实标注（PRD §5.2⑤：固定展示，禁止包装成 benchmark） */
-  corpusSize: number;
-  corpusNote: string;
-  layers: { easy: EvalLayer; medium: EvalLayer; hard: EvalLayer };
-  delta?: EvalDelta;
+  /** 题数（注意：非逐题数组——逐题明细后端不提供，运行步降级为进度展示）。 */
+  cases: number;
+  layers: { easy?: EvalLayer; medium?: EvalLayer; hard?: EvalLayer };
+  corpus: { docs: number; chunks: number };
+  delta?: EvalDelta | null;
 }
 
-/** 逐题结果（运行步流式表格；后端可选提供，缺失时只展示聚合指标） */
+/** 逐题结果（运行步表格；真实契约不提供，仅 demo mock 同形演示）。 */
 export interface EvalCaseView {
   question: string;
   hit: boolean;

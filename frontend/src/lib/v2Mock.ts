@@ -53,8 +53,8 @@ export async function patchUser(id: string, patch: { status?: string; resetPassw
 // ===== 库权限 =====
 
 let kbs = [
-  { id: "211", name: "产品手册库", visibility: "PRIVATE" as string },
-  { id: "212", name: "客服话术库", visibility: "ALL" as string },
+  { id: "211", name: "产品手册库", visibility: "PRIVATE" as string, createdAt: "2026-10-28T10:00:00" },
+  { id: "212", name: "客服话术库", visibility: "ALL" as string, createdAt: "2026-10-29T09:00:00" },
 ];
 
 let members: Record<string, KbMember[]> = {
@@ -94,13 +94,13 @@ export async function health(): Promise<HealthSnapshot> {
   await wait(150);
   return {
     backend: "UP",
-    db: "UP",
+    db: { up: true, pingMs: 7 },
     storage: { type: "local", writable: true, usageBytes: "734003200" },
-    providers: {
-      primary: { name: "deepseek/deepseek-chat", circuitState: "CLOSED" },
-      fallback: { name: "zhipu/glm-4-flash", circuitState: "HALF_OPEN" },
-    },
-    counts: { docs: 128, kbs: 4, users: users.length },
+    providers: [
+      { name: "deepseek/deepseek-chat", circuitState: "CLOSED" },
+      { name: "zhipu/glm-4-flash", circuitState: "HALF_OPEN" },
+    ],
+    counts: { docs: 128, kbs: 4, users: users.length, agentRuns: 23 },
   };
 }
 
@@ -131,9 +131,13 @@ export async function startEvalRun(kbId: string, source: { setPath?: string; set
       hitAt5: 0.8,
       recallAt5: 0.8,
       mrrAt10: 0.9,
-      corpusSize: 10,
-      corpusNote: "内部小语料集（10 篇），指标仅作回归基线",
-      layers: { easy: { hitAt5: 1.0, cases: 3 }, medium: { hitAt5: 0.75, cases: 4 }, hard: { hitAt5: 0.5, cases: 3 } },
+      cases: 10,
+      layers: {
+        easy: { cases: 3, hitAt5: 1.0, recallAt5: 1.0, mrrAt10: 1.0 },
+        medium: { cases: 4, hitAt5: 0.75, recallAt5: 0.7, mrrAt10: 0.8 },
+        hard: { cases: 3, hitAt5: 0.5, recallAt5: 0.6, mrrAt10: 0.85 },
+      },
+      corpus: { docs: 10, chunks: 64 },
       delta: { vsLastRunId: "990", hitAt5: 0.1, recallAt5: -0.05, mrrAt10: 0.05 },
     };
   }, 2000);

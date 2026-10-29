@@ -78,16 +78,20 @@ describe("首启向导全流程（F8 前端半）", () => {
   it("空表 → 向导三步走完才会话建立并进入 /chat（setup 即登录会抢跑向导，回归锁）", async () => {
     renderAppAt("/login");
 
-    // 空表 → 向导第一步
-    await screen.findByText("第一步：创建系统管理员账号");
+    // 空表 → 向导第一步（联调对齐线：第 1 步只收凭据，文案随之更新）
+    await screen.findByText(/第一步：设置管理员账号与密码/);
     fireEvent.change(screen.getByLabelText("管理员账号"), { target: { value: "wizard-admin" } });
     fireEvent.change(screen.getByLabelText("密码（至少 6 位）"), { target: { value: "secret1" } });
-    fireEvent.click(screen.getByRole("button", { name: "创建并继续" }));
+    fireEvent.click(screen.getByRole("button", { name: "下一步" }));
 
-    // 第二步（会话尚未建立：token 仍为空，未跳聊天）
+    // 第二步（setup 尚未触发，token 仍为空，未跳聊天）
     await screen.findByText(/第二步：建库或加载演示库/);
     expect(getToken()).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "先跳过" }));
+    // 跳过卡触发 setup：token 此刻落地（供第 2 步建库 API 携带——修复 M1 既有 401），
+    // 但仍停留向导不重定向（AuthProvider user 状态仅 onSignIn 更新，结构防抢跑）
+    await screen.findByText("进入聊天");
+    expect(getToken()).toBeTruthy();
 
     // 第三步 → 进入聊天
     await screen.findByText("进入聊天");
