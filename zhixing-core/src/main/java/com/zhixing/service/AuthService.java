@@ -24,6 +24,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 import jakarta.validation.constraints.NotBlank;
+import java.util.List;
 
 /**
  * 认证应用服务（02-技术方案 §B1）：登录（BCrypt + opaque token）/ 登出 / 首启 setup /
@@ -82,11 +83,18 @@ public class AuthService {
                                @NotBlank(message = "password 不能为空") String password) {
     }
 
-    /** 用户视图（登录/setup/me 共用）。 */
-    public record UserView(Long id, String username, String systemRole) {
+    /**
+     * 用户视图（登录/setup/me 共用）。orgs 仅 me 填充（AuthController 组装，additive——
+     * 登录/setup 响应为 null，前端契约 MeOrgsExtension 可选字段）；组织语义见 OrgService。
+     */
+    public record UserView(Long id, String username, String systemRole, List<OrgService.OrgMembershipView> orgs) {
 
         public static UserView of(AuthUser user) {
-            return new UserView(user.getId(), user.getUsername(), user.getSystemRole());
+            return new UserView(user.getId(), user.getUsername(), user.getSystemRole(), null);
+        }
+
+        public UserView withOrgs(List<OrgService.OrgMembershipView> orgs) {
+            return new UserView(id, username, systemRole, orgs);
         }
     }
 

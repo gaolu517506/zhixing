@@ -137,6 +137,8 @@ export interface AgentTimeline {
 // ===== 知识库 / Trace（v1.1 前端收口：GET /api/kb 与 /api/trace 已就绪的契约）=====
 
 export interface KbSummary {
+  /** 归属组织（F10 线 F additive；null=未归属）。组织筛选下拉数据源。 */
+  orgId?: string | null;
   id: Id;
   name: string;
   description: string | null;
@@ -183,6 +185,8 @@ export interface AuthUser {
   /** 线 A UserView 未提供该字段（联调对齐，DL-26）；展示一律回退 username。 */
   displayName?: string;
   systemRole: "ADMIN" | "USER";
+  /** 所属组织（F10 线 F，契约 MeOrgsExtension additive；仅 me 填充）。 */
+  orgs?: { id: string; name: string; role: "ADMIN" | "MEMBER" }[];
 }
 
 export interface LoginResponse {

@@ -10,6 +10,7 @@ package com.zhixing.service;
  * PERMISSION_CHANGE 属管理后台/评测线（T6-0-D 接线）；
  * RESET_PASSWORD 属管理后台用户管理（v2.0 维护线 DL-29 扩枚举接线——高危凭据操作
  * 与 DISABLE/ENABLE 同级，审计完整性优先于枚举闭合性，02 §B3 已随 DL-29 勘误）。
+ * ORG_CHANGE 属组织隔离线（T8-1 接线：组织成员增删改/库归属变更，detail 记 from→to）。
  */
 public enum AuditAction {
     LOGIN,
@@ -26,5 +27,6 @@ public enum AuditAction {
     USER_DISABLE,
     USER_ENABLE,
     EVAL_RUN,
-    RESET_PASSWORD
+    RESET_PASSWORD,
+    ORG_CHANGE
 }
