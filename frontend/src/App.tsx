@@ -10,6 +10,7 @@ import AdminAuditPage from "./pages/admin/AdminAuditPage";
 import AdminHealthPage from "./pages/admin/AdminHealthPage";
 import AdminKbPermsPage from "./pages/admin/AdminKbPermsPage";
 import AdminUsersPage from "./pages/admin/AdminUsersPage";
+import AdminOrgsPage from "./pages/admin/AdminOrgsPage";
 import RequireAdmin from "./auth/RequireAdmin";
 import RequireAuth from "./auth/RequireAuth";
 import { AuthProvider, useAuth } from "./auth/AuthContext";
@@ -59,6 +60,14 @@ function Shell() {
           </nav>
         </div>
         <div className="flex items-center gap-3">
+          {(user?.orgs ?? []).length > 0 && (
+            <span
+              className="rounded bg-blue-50 px-2 py-0.5 text-xs text-blue-700"
+              title={user!.orgs!.map((o) => o.name).join("、")}
+            >
+              {user!.orgs!.length > 1 ? `${user!.orgs!.length} 个组织` : user!.orgs![0].name}
+            </span>
+          )}
           <span className="text-xs text-slate-500">{user?.displayName ?? user?.username}</span>
           <button
             type="button"
@@ -106,6 +115,7 @@ export default function App() {
             <Route path="/admin" element={<AdminPage />}>
               <Route index element={<Navigate to="/admin/users" replace />} />
               <Route path="users" element={<AdminUsersPage />} />
+              <Route path="orgs" element={<AdminOrgsPage />} />
               <Route path="kb-perms" element={<AdminKbPermsPage />} />
               <Route path="audit" element={<AdminAuditPage />} />
               <Route path="health" element={<AdminHealthPage />} />

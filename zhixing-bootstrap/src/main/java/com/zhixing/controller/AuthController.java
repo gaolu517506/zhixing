@@ -6,6 +6,7 @@ import com.zhixing.common.auth.AuthContext;
 import com.zhixing.common.auth.CurrentUser;
 import com.zhixing.service.AuthService;
 import com.zhixing.service.DemoSeedService;
+import com.zhixing.service.OrgService;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -34,9 +35,12 @@ public class AuthController {
 
     private final DemoSeedService demoSeedService;
 
-    public AuthController(AuthService authService, DemoSeedService demoSeedService) {
+    private final OrgService orgService;
+
+    public AuthController(AuthService authService, DemoSeedService demoSeedService, OrgService orgService) {
         this.authService = authService;
         this.demoSeedService = demoSeedService;
+        this.orgService = orgService;
     }
 
     @PostMapping("/login")
@@ -51,10 +55,12 @@ public class AuthController {
         return Result.ok(null);
     }
 
+    /** me：orgs additive（F10 线 F——顶栏组织徽标与 /kb 筛选数据源，契约 MeOrgsExtension）。 */
     @GetMapping("/me")
     public Result<AuthService.UserView> me() {
         var user = AuthContext.current();
-        return Result.ok(new AuthService.UserView(user.id(), user.username(), user.systemRole()));
+        return Result.ok(new AuthService.UserView(user.id(), user.username(), user.systemRole(), null)
+                .withOrgs(orgService.membershipsOf(user.id())));
     }
 
     /** 首启向导第一步：needSetup=auth_user 空表；seedAvailable=演示种子可用（§B8）。 */

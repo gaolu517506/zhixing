@@ -8,6 +8,7 @@ import com.zhixing.common.auth.CurrentUser;
 import com.zhixing.dao.entity.KbKnowledgeBase;
 import com.zhixing.dao.mapper.KbKnowledgeBaseMapper;
 import com.zhixing.dao.mapper.KbMemberMapper;
+import com.zhixing.dao.mapper.OrgMemberMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -33,13 +34,16 @@ class PermissionServiceImplTest {
 
     private KbMemberMapper memberMapper;
 
+    private OrgMemberMapper orgMemberMapper;
+
     private PermissionServiceImpl service;
 
     @BeforeEach
     void setUp() {
         kbMapper = mock(KbKnowledgeBaseMapper.class);
         memberMapper = mock(KbMemberMapper.class);
-        service = new PermissionServiceImpl(kbMapper, memberMapper);
+        orgMemberMapper = mock(OrgMemberMapper.class);
+        service = new PermissionServiceImpl(kbMapper, memberMapper, orgMemberMapper);
     }
 
     @AfterEach

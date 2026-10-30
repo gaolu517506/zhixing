@@ -25,6 +25,9 @@ public class KbKnowledgeBase {
     /** 可见性（V4，F2）：PRIVATE（默认，仅成员）/ ALL（所有登录用户）。判定单点 PermissionService。 */
     private String visibility;
 
+    /** 归属组织（V6，F10）：null=未归属（仅 kb_member 直属可见）；非空=本组织成员 ∪ 直属可见。 */
+    private Long orgId;
+
     private Integer chunkSize;
 
     private Integer chunkOverlap;

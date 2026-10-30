@@ -91,10 +91,11 @@ public class KbController {
     public record KbCreatedResponse(Long id) {
     }
 
-    public record KbItemResponse(Long id, String name, String description, LocalDateTime createdAt) {
+    /** orgId additive（F10 线 F，契约 KbSummary.orgId）：组织筛选下拉数据源；null=未归属。 */
+    public record KbItemResponse(Long id, String name, String description, LocalDateTime createdAt, Long orgId) {
 
         static KbItemResponse of(KbKnowledgeBase kb) {
-            return new KbItemResponse(kb.getId(), kb.getName(), kb.getDescription(), kb.getCreatedAt());
+            return new KbItemResponse(kb.getId(), kb.getName(), kb.getDescription(), kb.getCreatedAt(), kb.getOrgId());
         }
     }
 

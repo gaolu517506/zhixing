@@ -2,6 +2,7 @@ import { NavLink, Outlet } from "react-router-dom";
 
 const SUB_PAGES = [
   { to: "/admin/users", label: "用户管理" },
+  { to: "/admin/orgs", label: "组织管理" },
   { to: "/admin/kb-perms", label: "库权限" },
   { to: "/admin/audit", label: "审计查询" },
   { to: "/admin/health", label: "系统健康" },

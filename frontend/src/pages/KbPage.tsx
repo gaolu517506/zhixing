@@ -5,6 +5,7 @@ import KbHeader from "../components/KbHeader";
 import Toast, { type ToastItem } from "../components/Toast";
 import UploadZone from "../components/UploadZone";
 import { deleteDocument, deleteKnowledgeBase, listDocuments, listKnowledgeBases, uploadDocument } from "../lib/api";
+import { useAuth } from "../auth/AuthContext";
 import { errorTextOf } from "../lib/errors";
 import { isInFlight, type DocumentItem, type Id, type KbSummary } from "../lib/types";
 
@@ -24,6 +25,9 @@ export default function KbPage() {
   const [pendingKbDelete, setPendingKbDelete] = useState<KbSummary | null>(null);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [uploading, setUploading] = useState(false);
+  // F10 线 F：组织视角筛选（全部 / 未归属 / 我所属组织）——纯前端过滤，权限收敛仍在后端
+  const [orgFilter, setOrgFilter] = useState<string>("ALL");
+  const { user } = useAuth();
 
   const pushToast = useCallback((text: string): void => {
     setToasts((prev) => [...prev, { id: Date.now() + Math.random(), text }]);
@@ -111,6 +115,18 @@ export default function KbPage() {
       });
   }, [pendingDelete, pushToast, reload]);
 
+  const visibleKbs =
+    orgFilter === "ALL"
+      ? kbs
+      : orgFilter === "NONE"
+        ? kbs.filter((kb) => !kb.orgId)
+        : kbs.filter((kb) => kb.orgId === orgFilter);
+  // 筛选后选中库不可见时自动回落到可见集第一个（或清空）
+  useEffect(() => {
+    if (activeKbId !== null && !visibleKbs.some((kb) => kb.id === activeKbId)) {
+      setActiveKbId(visibleKbs[0]?.id ?? null);
+    }
+  }, [orgFilter]); // eslint-disable-line react-hooks/exhaustive-deps
   const activeKb = kbs.find((kb) => kb.id === activeKbId) ?? null;
 
   const handleKbDelete = useCallback((): void => {
@@ -143,6 +159,25 @@ export default function KbPage() {
     <div className="mx-auto h-full max-w-4xl overflow-y-auto p-6">
       <Toast items={toasts} onExpire={expireToast} />
 
+      {user && (user.orgs ?? []).length >= 0 && (
+        <div className="mb-3 flex items-center gap-2 text-xs text-slate-500">
+          <span>组织视角</span>
+          <select
+            value={orgFilter}
+            onChange={(e) => setOrgFilter(e.target.value)}
+            className="rounded border border-slate-300 bg-white px-2 py-1 text-xs outline-none focus:border-blue-500"
+          >
+            <option value="ALL">全部可见库</option>
+            <option value="NONE">未归属组织</option>
+            {(user.orgs ?? []).map((org) => (
+              <option key={org.id} value={org.id}>
+                {org.name}
+                {org.role === "ADMIN" ? "（我管理）" : ""}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
       <KbHeader
         kbs={kbs}
         activeKbId={activeKbId}
