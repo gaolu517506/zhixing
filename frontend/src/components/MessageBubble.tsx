@@ -10,6 +10,8 @@ export interface ChatMessage {
   content: string;
   sources: SourceRef[];
   error?: string;
+  /** F11 线 G：意图路由命中提示（「已路由到：X」）。 */
+  routedNote?: string;
   streaming?: boolean;
   stopped?: boolean;
   /** Agent 回合的工具时间线（历史回放不重放，仅本回合实时渲染后保留）。 */
@@ -40,6 +42,11 @@ export default function MessageBubble({ message }: { message: ChatMessage }) {
             )}
             {message.streaming && message.content.length > 0 && (
               <span className="ml-0.5 inline-block h-4 w-2 animate-pulse bg-slate-400 align-text-bottom" />
+            )}
+            {message.routedNote && (
+              <div className="mt-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs text-blue-700">
+                🎯 {message.routedNote}
+              </div>
             )}
             {message.error && (
               <div className="mt-2 rounded-md border border-red-200 bg-red-50 px-3 py-1.5 text-sm text-red-600">

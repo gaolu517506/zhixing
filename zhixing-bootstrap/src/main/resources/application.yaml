@@ -68,6 +68,9 @@ zhixing:
       access-key: ${MINIO_ACCESS_KEY:}
       secret-key: ${MINIO_SECRET_KEY:}
       bucket: zhixing
+  route:
+    enabled: true                           # 意图路由总开关（F11，02 §B10）；false 时问答必须显式选库
+    llm-enabled: true                       # 关键词未命中时是否尝试 LLM 分类（false=仅关键词级，失败即回落）
   demo:
     seed-enabled: true                      # 首启向导可选「加载演示库」（F8）；classpath 内置演示文档（resources/demo/），docs/ 不入库
     kb-name: 演示库                          # 种子库显示名

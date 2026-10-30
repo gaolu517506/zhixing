@@ -59,7 +59,19 @@ class EvalRunExecutorTest {
         // 这里用桩：单轮用例不触重写
         executor = new EvalRunExecutor(retrievalEngine,
                 (history, summary, query) -> new RewrittenQuery(query, List.of(), false),
-                runMapper, docMapper, chunkMapper, new RetrieveProperties(), audit, new ObjectMapper());
+                runMapper, docMapper, chunkMapper, new RetrieveProperties(), audit, new ObjectMapper(),
+                stubRouter());
+    }
+
+    /** F11：评测集不带 expectedIntent 时路由器不被触达——mock 返回回落以防万一。 */
+    @SuppressWarnings("unchecked")
+    private IntentRouter stubRouter() {
+        IntentRouter router = mock(IntentRouter.class);
+        org.mockito.Mockito.when(router.route(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyList()))
+                .thenAnswer(inv -> new IntentRouter.RouteDecision("FALLBACK", null, null, null,
+                        new java.util.ArrayList<>(inv.getArgument(1))));
+        return router;
     }
 
     private void stubDocs(Object... pairs) {

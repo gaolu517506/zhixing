@@ -32,7 +32,8 @@ public final class EvalSetSupport {
     public record EvalCase(String id, String query,
                            @JsonProperty("expected_doc_ids") List<String> expectedDocIds,
                            String difficulty, String note,
-                           @JsonProperty("history") List<Turn> history) {
+                           @JsonProperty("history") List<Turn> history,
+                           @JsonProperty("expected_intent") String expectedIntent) {
     }
 
     /** 单题计算结果（docId 维度指标由调用方解析业务码后填入）。 */

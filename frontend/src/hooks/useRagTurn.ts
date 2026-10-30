@@ -17,7 +17,7 @@ interface RagTurnOptions {
  */
 export function useRagTurn({ setMessages, onSessionAdopt }: RagTurnOptions): {
   streaming: boolean;
-  send: (kbId: Id, sessionId: Id | null, question: string) => void;
+  send: (kbId: Id | null, sessionId: Id | null, question: string) => void;
   abort: () => void;
 } {
   const [streaming, setStreaming] = useState(false);
@@ -45,7 +45,7 @@ export function useRagTurn({ setMessages, onSessionAdopt }: RagTurnOptions): {
   }, [setMessages]);
 
   const send = useCallback(
-    (kbId: Id, sessionId: Id | null, question: string): void => {
+    (kbId: Id | null, sessionId: Id | null, question: string): void => {
       const assistantMessage: ChatMessage = { role: "assistant", content: "", sources: [], streaming: true };
       setMessages((prev) => [...prev, assistantMessage]);
       setStreaming(true);
@@ -54,7 +54,13 @@ export function useRagTurn({ setMessages, onSessionAdopt }: RagTurnOptions): {
       streamQa(
         { kbId, sessionId, question },
         {
-          onStart: () => undefined,
+          // F11 线 G：路由命中（KEYWORD/LLM）时在 assistant 消息顶部显示「已路由到」提示；回落静默
+          onStart: (data) => {
+            if (data.routedKbIds && data.routedKbIds.length > 0) {
+              const target = data.routedRouteName ?? `${data.routedKbIds.length} 个候选库`;
+              patchAssistant({ routedNote: `已路由到：${target}` });
+            }
+          },
           onThinking: () => undefined,
           onContent: ({ delta }) =>
             setMessages((prev) => {

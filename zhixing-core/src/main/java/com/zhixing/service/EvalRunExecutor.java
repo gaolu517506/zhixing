@@ -63,9 +63,13 @@ public class EvalRunExecutor {
 
     private final ObjectMapper objectMapper;
 
+    /** 意图路由器（F11 线 G）：带 expectedIntent 的评测题做路由命中率统计。 */
+    private final IntentRouter intentRouter;
+
     public EvalRunExecutor(RetrievalEngine retrievalEngine, QueryRewriter queryRewriter,
                            EvalRunMapper runMapper, KbDocumentMapper docMapper, KbChunkMapper chunkMapper,
-                           RetrieveProperties retrieveProps, AuditRecorder audit, ObjectMapper objectMapper) {
+                           RetrieveProperties retrieveProps, AuditRecorder audit, ObjectMapper objectMapper,
+                           IntentRouter intentRouter) {
         this.retrievalEngine = retrievalEngine;
         this.queryRewriter = queryRewriter;
         this.runMapper = runMapper;
@@ -74,6 +78,7 @@ public class EvalRunExecutor {
         this.retrieveProps = retrieveProps;
         this.audit = audit;
         this.objectMapper = objectMapper;
+        this.intentRouter = intentRouter;
     }
 
     /** eval-pool 提交的唯一入口：异常全部自兜——线程池里不允许未捕获异常静默吞掉终态落库。 */
@@ -83,6 +88,8 @@ public class EvalRunExecutor {
             RetrieveBudget budget = RetrieveBudget.of(retrieveProps.getVectorTopK(),
                     retrieveProps.getKeywordTopK(), retrieveProps.getFinalTopK());
             List<EvalSetSupport.CaseResult> results = new ArrayList<>(cases.size());
+            int routeHits = 0;
+            int routeTotal = 0;
             for (EvalSetSupport.EvalCase evalCase : cases) {
                 // 多轮用例（history 非空）走真实重写路径（T2-6）；单轮用例保持 Baseline-1 行为
                 List<Turn> history = evalCase.history() == null ? List.of() : evalCase.history();
@@ -102,9 +109,17 @@ public class EvalRunExecutor {
                         EvalMetrics.hitAtK(rankedDocIds, expected, 5),
                         EvalMetrics.recallAtK(rankedDocIds, expected, 5),
                         EvalMetrics.mrrAtK(rankedDocIds, expected, 10)));
+                // F11 评测扩展（02 §B10）：带 expectedIntent 的题统计路由命中率（D11 纪律延伸）
+                if (evalCase.expectedIntent() != null && !evalCase.expectedIntent().isBlank()) {
+                    routeTotal += 1;
+                    IntentRouter.RouteDecision decision = intentRouter.route(query, List.of(kbId));
+                    if (decision.routeName() != null && decision.routeName().equals(evalCase.expectedIntent())) {
+                        routeHits += 1;
+                    }
+                }
             }
 
-            String report = buildReport(kbId, runId, results);
+            String report = buildReport(kbId, runId, results, routeHits, routeTotal);
             EvalRun patch = new EvalRun();
             patch.setId(runId);
             patch.setStatus(STATUS_COMPLETED);
@@ -132,7 +147,8 @@ public class EvalRunExecutor {
      * 报告组装：overall 三指标 + easy/medium/hard 分层 + 语料规模快照 + delta
      * （同库上一个 COMPLETED 运行对比；无基线为 null——「回归基线」定性由前端按 delta 呈现）。
      */
-    private String buildReport(long kbId, long runId, List<EvalSetSupport.CaseResult> results) {
+    private String buildReport(long kbId, long runId, List<EvalSetSupport.CaseResult> results,
+                               int routeHits, int routeTotal) {
         double hitAt5 = results.stream().mapToDouble(EvalSetSupport.CaseResult::hitAt5).average().orElse(0);
         double recallAt5 = results.stream().mapToDouble(EvalSetSupport.CaseResult::recallAt5).average().orElse(0);
         double mrrAt10 = results.stream().mapToDouble(EvalSetSupport.CaseResult::mrrAt10).average().orElse(0);
@@ -156,6 +172,13 @@ public class EvalRunExecutor {
         report.put("cases", results.size());
         report.put("layers", layers);
         report.put("corpus", corpusOf(kbId));
+        // F11 评测扩展：路由命中率（仅当评估集带 expectedIntent 时呈现；cases=0 不写字段）
+        if (routeTotal > 0) {
+            Map<String, Object> route = new LinkedHashMap<>();
+            route.put("hitRate", round((double) routeHits / routeTotal));
+            route.put("cases", routeTotal);
+            report.put("route", route);
+        }
 
         // 上一 COMPLETED 运行（wrapper 排序 + 取首条）
         List<EvalRun> previousRuns = runMapper.selectList(new LambdaQueryWrapper<EvalRun>()

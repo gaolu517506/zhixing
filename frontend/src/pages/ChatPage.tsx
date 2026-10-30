@@ -110,12 +110,13 @@ export default function ChatPage() {
 
   const handleSend = useCallback(
     (question: string): void => {
-      if (streaming || activeKbId === null) {
+      // F11 线 G：RAG 模式允许不选库（意图路由接管，PRD 用户故事 42）；Agent 模式仍必须选库
+      if (streaming || (mode === "agent" && activeKbId === null)) {
         return;
       }
       setMessages((prev) => [...prev, { role: "user", content: question, sources: [] }]);
       if (mode === "agent") {
-        agent.start(question, activeSessionIdRef.current, activeKbId);
+        agent.start(question, activeSessionIdRef.current, activeKbId!);
         return;
       }
       ragTurn.send(activeKbId, activeSessionIdRef.current, question);

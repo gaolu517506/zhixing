@@ -190,7 +190,19 @@ class QaServiceTest {
                 new TraceRecorder(traceRunMapper, traceNodeMapper, traceProps),
                 new RetrieveProperties(), new QaProperties(), new ObjectMapper(), Runnable::run,
                 memory, summarizer, rewriter, new SummaryProperties(), rewriteProps, longTermMemory,
-                mock(PermissionService.class));
+                mock(PermissionService.class),
+                stubRouter(), new com.zhixing.config.RouteProperties());
+    }
+
+    /** F11 路由桩：既有用例均显式带 kbId，路由器不被触达；mock 返回回落以防万一。 */
+    @SuppressWarnings("unchecked")
+    private IntentRouter stubRouter() {
+        IntentRouter router = mock(IntentRouter.class);
+        org.mockito.Mockito.when(router.route(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyList()))
+                .thenAnswer(inv -> new IntentRouter.RouteDecision("FALLBACK", null, null, null,
+                        new java.util.ArrayList<>(inv.getArgument(1))));
+        return router;
     }
 
     private static QaStreamRequest request() {
@@ -309,7 +321,8 @@ class QaServiceTest {
                 new SessionMemory(sessionMapper, messageMapper, new MemoryProperties()),
                 new Summarizer(fakeChat, new SummaryProperties()),
                 new NoopQueryRewriter(), new SummaryProperties(), new RewriteProperties(), memoryStub(),
-                mock(PermissionService.class));
+                mock(PermissionService.class),
+                stubRouter(), new com.zhixing.config.RouteProperties());
 
         service.runQa(request(), 1L, 100L, sink);
 

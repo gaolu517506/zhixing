@@ -45,6 +45,26 @@ describe("feedSse 半包（红线）", () => {
     expect(second.state).toBe("");
   });
 
+  it("F11 additive：start 事件带 routedKbIds 可解析；旧格式（无新字段）向后兼容不破", () => {
+    // 新格式：路由命中携带 routedKbIds/routedRouteName
+    const routed = feedSse(
+      "",
+      'event: start\ndata:{"runId":"1","messageId":"2","engine":"workflow","routedKbIds":["11","12"],"routedRouteName":"保修咨询"}\n\n',
+    );
+    expect(routed.events).toHaveLength(1);
+    const parsedNew = JSON.parse(routed.events[0].data) as {
+      routedKbIds?: string[];
+      routedRouteName?: string | null;
+    };
+    expect(parsedNew.routedKbIds).toEqual(["11", "12"]);
+    expect(parsedNew.routedRouteName).toBe("保修咨询");
+
+    // 旧格式：回落不带新字段——解析不破，字段 undefined（02 §B11 向后兼容断言）
+    const legacy = feedSse("", 'event: start\ndata:{"runId":"1","messageId":"2","engine":"workflow"}\n\n');
+    const parsedLegacy = JSON.parse(legacy.events[0].data) as { routedKbIds?: string[] };
+    expect(parsedLegacy.routedKbIds).toBeUndefined();
+  });
+
   it("data 行切一半（多字节场景由解码层保证字符完整，此处验证行级拼接）", () => {
     const first = feedSse("", 'event: content\ndata:{"delta":"小米 15 Ultra 搭');
     expect(first.events).toEqual([]);
