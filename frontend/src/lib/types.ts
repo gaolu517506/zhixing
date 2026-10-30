@@ -55,9 +55,10 @@ export function isInFlight(status: DocStatus): boolean {
   return IN_FLIGHT_STATUSES.includes(status);
 }
 
-/** POST /api/qa/stream 请求体（后端 QaStreamRequest 契约）。 */
+/** POST /api/qa/stream 请求体（后端 QaStreamRequest 契约；kbId F11 线 G 起可空 = 意图路由）。 */
 export interface QaStreamRequest {
-  kbId: Id;
+  /** 可空：缺省 = 由意图路由决定目标库（02 §B10）。 */
+  kbId?: Id | null;
   sessionId?: Id | null;
   question: string;
 }
@@ -67,6 +68,9 @@ export interface QaStart {
   runId: Id;
   messageId: Id;
   engine: string;
+  /** F11 线 G additive：路由命中（KEYWORD/LLM）时携带；回落（FALLBACK）不携带。 */
+  routedKbIds?: Id[];
+  routedRouteName?: string | null;
 }
 export interface QaDelta {
   delta: string;

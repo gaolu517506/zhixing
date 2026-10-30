@@ -104,7 +104,7 @@ export default function ChatInput({
           <button
             type="button"
             onClick={submit}
-            disabled={streaming || activeKbId === null || text.trim().length === 0}
+            disabled={streaming || (mode === "agent" && activeKbId === null) || text.trim().length === 0}
             className="h-10 rounded-lg bg-blue-600 px-5 text-sm text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {streaming ? "生成中…" : "发送"}

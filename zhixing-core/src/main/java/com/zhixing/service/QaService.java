@@ -115,6 +115,11 @@ public class QaService {
      *  通过后才建 SseEmitter，无权限在 HTTP 层即以 A0006 拒绝。 */
     private final PermissionService permissionService;
 
+    /** 意图路由器（F11 线 G）：kbId 缺省时路由目标库。 */
+    private final IntentRouter intentRouter;
+
+    private final com.zhixing.config.RouteProperties routeProps;
+
     public QaService(ChatClient chatClient,
                      RetrievalEngine retrievalEngine,
                      QaSessionMapper sessionMapper,
@@ -130,7 +135,9 @@ public class QaService {
                      SummaryProperties summaryProps,
                      RewriteProperties rewriteProps,
                      com.zhixing.core.memory.LongTermMemoryService longTermMemory,
-                     PermissionService permissionService) {
+                     PermissionService permissionService,
+                     IntentRouter intentRouter,
+                     com.zhixing.config.RouteProperties routeProps) {
         this.chatClient = chatClient;
         this.retrievalEngine = retrievalEngine;
         this.sessionMapper = sessionMapper;
@@ -147,6 +154,8 @@ public class QaService {
         this.rewriteProps = rewriteProps;
         this.longTermMemory = longTermMemory;
         this.permissionService = permissionService;
+        this.intentRouter = intentRouter;
+        this.routeProps = routeProps;
         this.promptTemplate = loadTemplate("prompts/rag-v0.md");
         this.systemTemplate = loadTemplate("prompts/rag-system-v1.md");
     }
@@ -164,8 +173,13 @@ public class QaService {
 
     public SseEmitter streamQa(QaStreamRequest req) {
         // 权限在 service 入口（02 §B2 调用点清单）：异常走全局异常处理器翻译为 A0006，
-        // 不产生 SSE——通过后才进入会话准备与异步链路
-        permissionService.requireAccess(req.getKbId());
+        // 不产生 SSE——通过后才进入会话准备与异步链路。kbId 缺省（F11 意图路由）时，
+        // 目标库由 runQa 路由决定且路由输出已过权限交集（D19），无需此处单库校验
+        if (req.getKbId() != null) {
+            permissionService.requireAccess(req.getKbId());
+        } else if (!routeProps.isEnabled()) {
+            throw new BusinessException(ErrorCode.CLIENT_ERROR, "意图路由未开启，请先选择知识库");
+        }
         long sessionId = ensureSession(req);
         long userMsgId = saveUserMessage(sessionId, req.getQuestion());
         SseEmitter emitter = new SseEmitter(qaProps.getEmitterTimeoutMs());
@@ -195,8 +209,22 @@ public class QaService {
         List<SourceRef> sources = null;
         ChatUsage usage = null;
         Exception failure = null;
+        // F11 意图路由：kbId 缺省时由路由决定目标库（trace route 节点 + start 事件 additive 字段）
+        Long kbId = req.getKbId();
+        IntentRouter.RouteDecision routed = null;
         try {
-            sink.send("start", new SseStart(runId, userMsgId, ENGINE_WORKFLOW));
+            if (kbId == null) {
+                routed = trace.node(runId, ctx.seq(), "route", req.getQuestion(),
+                        () -> intentRouter.route(req.getQuestion(), permissionService.accessibleKbIds()));
+                List<Long> routedKbIds = routed.routedKbIds();
+                if (routedKbIds.isEmpty()) {
+                    throw new BusinessException(ErrorCode.CLIENT_ERROR, "未找到可访问的知识库，请先建库或选库");
+                }
+                kbId = routedKbIds.get(0); // M3 范围：多目标取首个作为问答库（SSE 带全集，02 §B10）
+            }
+            sink.send("start", new SseStart(runId, userMsgId, ENGINE_WORKFLOW,
+                    routed == null ? null : routed.routedKbIds(),
+                    routed == null ? null : routed.routeName()));
 
             // ===== 多轮编排（详设-阶段2 §7；rewrite.enabled=false 完整回到阶段 1 行为） =====
             MemoryView memory = null;
@@ -212,8 +240,8 @@ public class QaService {
             RetrieveBudget budget = RetrieveBudget.of(retrieveProps.getVectorTopK(), retrieveProps.getKeywordTopK(),
                     retrieveProps.getFinalTopK());
             RetrievalResult result = memory != null
-                    ? retrievalEngine.retrieve(req.getKbId(), rewritten.standaloneQuestion(), rewritten.keywords(), budget, ctx)
-                    : retrievalEngine.retrieve(req.getKbId(), req.getQuestion(), budget, ctx);
+                    ? retrievalEngine.retrieve(kbId, rewritten.standaloneQuestion(), rewritten.keywords(), budget, ctx)
+                    : retrievalEngine.retrieve(kbId, req.getQuestion(), budget, ctx);
             sources = toSourceRefs(result.fused());
 
             // 长期记忆注入（R-T4 §2.3）：多轮分支 system 后追加 user 块；单 prompt 分支追加在模板前部
@@ -550,7 +578,8 @@ public class QaService {
 
     // ===== SSE 事件 data 结构（概设 §3.4 协议）=====
 
-    record SseStart(long runId, long messageId, String engine) {
+    record SseStart(long runId, long messageId, String engine,
+                    List<Long> routedKbIds, String routedRouteName) {
     }
 
     record SseDelta(String delta) {

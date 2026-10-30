@@ -11,6 +11,7 @@ import AdminHealthPage from "./pages/admin/AdminHealthPage";
 import AdminKbPermsPage from "./pages/admin/AdminKbPermsPage";
 import AdminUsersPage from "./pages/admin/AdminUsersPage";
 import AdminOrgsPage from "./pages/admin/AdminOrgsPage";
+import AdminRoutesPage from "./pages/admin/AdminRoutesPage";
 import RequireAdmin from "./auth/RequireAdmin";
 import RequireAuth from "./auth/RequireAuth";
 import { AuthProvider, useAuth } from "./auth/AuthContext";
@@ -118,6 +119,7 @@ export default function App() {
               <Route path="orgs" element={<AdminOrgsPage />} />
               <Route path="kb-perms" element={<AdminKbPermsPage />} />
               <Route path="audit" element={<AdminAuditPage />} />
+              <Route path="routes" element={<AdminRoutesPage />} />
               <Route path="health" element={<AdminHealthPage />} />
             </Route>
           </Route>

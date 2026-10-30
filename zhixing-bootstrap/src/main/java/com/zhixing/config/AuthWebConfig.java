@@ -1,5 +1,6 @@
 package com.zhixing.config;
 
+import com.zhixing.config.RouteProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Configuration;
 
@@ -8,6 +9,6 @@ import org.springframework.context.annotation.Configuration;
  * （framework/config 包约定：新增 Properties 必须挂到对应装配类）。
  */
 @Configuration
-@EnableConfigurationProperties({AuthProperties.class, DemoProperties.class})
+@EnableConfigurationProperties({AuthProperties.class, DemoProperties.class, RouteProperties.class})
 public class AuthWebConfig {
 }
