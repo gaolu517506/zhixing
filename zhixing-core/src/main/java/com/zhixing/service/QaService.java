@@ -179,12 +179,18 @@ public class QaService {
             permissionService.requireAccess(req.getKbId());
         } else if (!routeProps.isEnabled()) {
             throw new BusinessException(ErrorCode.CLIENT_ERROR, "意图路由未开启，请先选择知识库");
+        } else if (permissionService.accessibleKbIds().isEmpty()) {
+            throw new BusinessException(ErrorCode.CLIENT_ERROR, "未找到可访问的知识库，请先建库或选库");
         }
+        // 意图路由需要 accessibleKbIds——AuthContext 是请求级 ThreadLocal，qa-pool 异步段
+        // 不可调用（走查抓获：IllegalStateException）；同步段算好传入（沿 AgentService 传播先例）
+        final List<Long> routeAccessible =
+                req.getKbId() != null ? List.of() : permissionService.accessibleKbIds();
         long sessionId = ensureSession(req);
         long userMsgId = saveUserMessage(sessionId, req.getQuestion());
         SseEmitter emitter = new SseEmitter(qaProps.getEmitterTimeoutMs());
         SseEmitterSink sink = new SseEmitterSink(emitter);
-        CompletableFuture.runAsync(() -> runQa(req, sessionId, userMsgId, sink), qaPool)
+        CompletableFuture.runAsync(() -> runQa(req, sessionId, userMsgId, sink, routeAccessible), qaPool)
                 .whenComplete((v, t) -> {
                     if (t != null) {
                         // runQa 内部已兜底所有 Exception；到这里只剩 Error/池拒绝等意外，补一次终态
@@ -199,7 +205,8 @@ public class QaService {
 
     // ===== 链路编排（包可见：QaServiceTest 直调并断言事件序）=====
 
-    void runQa(QaStreamRequest req, long sessionId, long userMsgId, SseEventSink sink) {
+    void runQa(QaStreamRequest req, long sessionId, long userMsgId, SseEventSink sink,
+               List<Long> routeAccessible) {
         long runId = trace.startRun("QA", sessionId);
         TraceContext ctx = new TraceContext(runId, new AtomicInteger());
         long start = System.currentTimeMillis();
@@ -214,8 +221,9 @@ public class QaService {
         IntentRouter.RouteDecision routed = null;
         try {
             if (kbId == null) {
+                List<Long> accessible = routeAccessible;
                 routed = trace.node(runId, ctx.seq(), "route", req.getQuestion(),
-                        () -> intentRouter.route(req.getQuestion(), permissionService.accessibleKbIds()));
+                        () -> intentRouter.route(req.getQuestion(), accessible));
                 List<Long> routedKbIds = routed.routedKbIds();
                 if (routedKbIds.isEmpty()) {
                     throw new BusinessException(ErrorCode.CLIENT_ERROR, "未找到可访问的知识库，请先建库或选库");

@@ -216,7 +216,7 @@ class QaServiceTest {
 
     @Test
     void 正常流_事件序start_content_sources_done且消息落库() {
-        qaService.runQa(request(), 1L, 100L, sink);
+        qaService.runQa(request(), 1L, 100L, sink, List.of());
 
         assertThat(sink.events).hasSize(5);
         assertThat(sink.events.get(0)).startsWith("start:").contains("\"engine\":\"workflow\"");
@@ -249,7 +249,7 @@ class QaServiceTest {
         when(retrievalEngine.retrieve(anyLong(), any(), any(), any(RetrieveBudget.class), any()))
                 .thenThrow(new IllegalStateException("db down"));
 
-        qaService.runQa(request(), 1L, 100L, sink);
+        qaService.runQa(request(), 1L, 100L, sink, List.of());
 
         assertThat(sink.events).hasSize(3);
         assertThat(sink.events.get(0)).startsWith("start:");
@@ -265,7 +265,7 @@ class QaServiceTest {
         fakeChat.deltas = List.of("小米 15 Ultra 搭载");
         fakeChat.failureAfterDeltas = new ModelClientException(ErrorType.TIMEOUT, "stream timeout");
 
-        qaService.runQa(request(), 1L, 100L, sink);
+        qaService.runQa(request(), 1L, 100L, sink, List.of());
 
         assertThat(sink.events).hasSize(4);
         assertThat(sink.events.get(0)).startsWith("start:");
@@ -300,7 +300,7 @@ class QaServiceTest {
         // 修复后落库失败不升级为链路失败——回答已送达，done.messageId=null 标记未持久化
         when(messageMapper.insert(any(QaMessage.class))).thenThrow(new IllegalStateException("jsonb write fail"));
 
-        qaService.runQa(request(), 1L, 100L, sink);
+        qaService.runQa(request(), 1L, 100L, sink, List.of());
 
         assertThat(sink.events).hasSize(5);
         assertThat(sink.events.get(0)).startsWith("start:");
@@ -324,7 +324,7 @@ class QaServiceTest {
                 mock(PermissionService.class),
                 stubRouter(), new com.zhixing.config.RouteProperties());
 
-        service.runQa(request(), 1L, 100L, sink);
+        service.runQa(request(), 1L, 100L, sink, List.of());
 
         assertThat(sink.events).anyMatch(e -> e.startsWith("done:"));
         verify(quietNodeMapper, never()).insert(any(TraceNode.class));
@@ -344,7 +344,7 @@ class QaServiceTest {
         QaService service = newQaService(new TraceProperties(), memory,
                 new Summarizer(fakeChat, new SummaryProperties()), rewriter, new RewriteProperties());
 
-        service.runQa(request(), 1L, 100L, sink);
+        service.runQa(request(), 1L, 100L, sink, List.of());
 
         // DL-14 ①：system 在首位 + 历史原样交替 + 末条 user = 资料块 + 独立问题
         ChatRequest sent = fakeChat.lastStreamRequest;
@@ -388,7 +388,7 @@ class QaServiceTest {
         QaService service = newQaService(new TraceProperties(), memory,
                 summarizer, rewriter, new RewriteProperties());
 
-        service.runQa(request(), 1L, 100L, sink);
+        service.runQa(request(), 1L, 100L, sink, List.of());
 
         // 素材策略：窗口外更早轮次全量送入（这里 3 轮 < 4 轮上限）
         ArgumentCaptor<List<Turn>> batchCaptor = ArgumentCaptor.forClass(List.class);
@@ -426,7 +426,7 @@ class QaServiceTest {
         when(sessionMapper.updateById(any(QaSession.class))).thenThrow(new IllegalStateException("db write fail"));
         QaService service = newQaService(new TraceProperties(), memory, summarizer, rewriter, new RewriteProperties());
 
-        service.runQa(request(), 1L, 100L, sink);
+        service.runQa(request(), 1L, 100L, sink, List.of());
 
         // 对齐 saveAssistantQuietly 语义：落库失败只告警，本轮链路仍用新摘要（下轮触发自愈）
         verify(rewriter).rewrite(anyList(), eq("新摘要文本"), any());
@@ -451,7 +451,7 @@ class QaServiceTest {
         QaService service = newQaService(new TraceProperties(), memory,
                 new Summarizer(fakeChat, new SummaryProperties()), rewriter, new RewriteProperties());
 
-        service.runQa(request(), 1L, 100L, sink);
+        service.runQa(request(), 1L, 100L, sink, List.of());
 
         // DL-14 ③ 降级不终态：检索用原问题 + 空关键词，终态仍是正常 sources+done
         verify(retrievalEngine).retrieve(eq(9L), eq(request().getQuestion()), eq(List.of()),
@@ -476,7 +476,7 @@ class QaServiceTest {
         off.setEnabled(false);
         QaService service = newQaService(new TraceProperties(), memory, summarizer, rewriter, off);
 
-        service.runQa(request(), 1L, 100L, sink);
+        service.runQa(request(), 1L, 100L, sink, List.of());
 
         // 无记忆、无摘要、无重写
         verify(memory, never()).load(anyLong());
@@ -507,7 +507,7 @@ class QaServiceTest {
                 new Summarizer(fakeChat, new SummaryProperties()), new NoopQueryRewriter(),
                 new RewriteProperties(), longTermMemory);
 
-        service.runQa(request(), 1L, 100L, sink);
+        service.runQa(request(), 1L, 100L, sink, List.of());
 
         // messages：system → user(偏好块) → user(q1) → assistant(a1) → user(资料+问题)
         ChatRequest sentReq = fakeChat.lastStreamRequest;
@@ -524,7 +524,7 @@ class QaServiceTest {
     @Test
     void 无长期记忆_qa链路事件序不破且零额外消息() {
         // setUp 默认 memoryStub()：injectionBlock=null、触发 no-op——回归断言与阶段 2 完全一致
-        qaService.runQa(request(), 1L, 100L, sink);
+        qaService.runQa(request(), 1L, 100L, sink, List.of());
 
         assertThat(sink.events).hasSize(5);
         assertThat(sink.events.get(0)).startsWith("start:");
