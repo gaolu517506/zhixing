@@ -198,11 +198,13 @@ public class OrgService {
                 orgMemberMapper.insert(member);
                 changes.add(memberChange("ADD", entry.getKey(), null, entry.getValue()));
             } else if (!entry.getValue().equals(current.getRole())) {
+                // 复合主键（org_id,user_id）无单 @TableId——updateById 未注册（验收抓获），
+                // 改条件更新；条件带 orgId 防跨组织误改
                 OrgMember patch = new OrgMember();
-                patch.setOrgId(orgId);
-                patch.setUserId(entry.getKey());
                 patch.setRole(entry.getValue());
-                orgMemberMapper.updateById(patch);
+                orgMemberMapper.update(patch, new LambdaQueryWrapper<OrgMember>()
+                        .eq(OrgMember::getOrgId, orgId)
+                        .eq(OrgMember::getUserId, entry.getKey()));
                 changes.add(memberChange("ROLE_CHANGE", entry.getKey(), current.getRole(), entry.getValue()));
             }
         }

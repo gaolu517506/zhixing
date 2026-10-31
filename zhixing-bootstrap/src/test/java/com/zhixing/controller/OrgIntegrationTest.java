@@ -173,11 +173,19 @@ class OrgIntegrationTest {
         long kb = seedKb("审计归属库", "PRIVATE", null);
 
         // 系统 ADMIN 经 API 归属成员 + 库（差量各一条 ORG_CHANGE）
-        String memberBody = "[{\"userId\":" + plain.id() + ",\"role\":\"ADMIN\"}]";
+        String memberBody = "[{\"userId\":" + plain.id() + ",\"role\":\"MEMBER\"}]";
         mockMvc.perform(put("/api/admin/orgs/" + org + "/members")
                         .header("Authorization", TestAuth.bearer(admin))
                         .contentType("application/json")
                         .content("{\"members\":" + memberBody + "}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].role").value("MEMBER"));
+        // ROLE_CHANGE（复合主键条件更新路径——验收抓获 updateById 未注册缺陷的回归锁）
+        String promoteBody = "{\"members\":[{\"userId\":" + plain.id() + ",\"role\":\"ADMIN\"}]}";
+        mockMvc.perform(put("/api/admin/orgs/" + org + "/members")
+                        .header("Authorization", TestAuth.bearer(admin))
+                        .contentType("application/json")
+                        .content(promoteBody))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data[0].role").value("ADMIN"));
         mockMvc.perform(put("/api/admin/orgs/" + org + "/kbs")
@@ -186,11 +194,11 @@ class OrgIntegrationTest {
                         .content("{\"kbIds\": [" + kb + "]}"))
                 .andExpect(status().isOk());
 
-        // 审计落库可查（两条 ORG_CHANGE：members + kbAssignments）
+        // 审计落库可查（三条 ORG_CHANGE：members ADD、members ROLE_CHANGE、kbAssignments）
         List<AuditEvent> events = auditMapper.selectList(new LambdaQueryWrapper<AuditEvent>()
                 .eq(AuditEvent::getAction, "ORG_CHANGE")
                 .eq(AuditEvent::getTargetId, String.valueOf(org)));
-        assertThat(events).hasSize(2);
+        assertThat(events).hasSize(3);
         assertThat(events.get(0).getDetail()).contains("scope");
 
         // me.orgs additive：plain 已是组织 ADMIN，me 带组织

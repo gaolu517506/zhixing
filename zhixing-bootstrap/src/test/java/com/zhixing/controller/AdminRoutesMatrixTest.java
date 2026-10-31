@@ -81,7 +81,10 @@ class AdminRoutesMatrixTest {
         routeIds.clear();
     }
 
+    private String uniqueKeyword;
+
     private long seedRoute(String name) {
+        uniqueKeyword = "矩阵kw" + System.nanoTime();
         // 目标库用自建真库行（悬空 ID 会因 D19 权限交集被过滤成回落，矩阵需 KEYWORD 真跑）
         KbKnowledgeBase kb = new KbKnowledgeBase();
         kb.setId(IdUtil.getSnowflakeNextId());
@@ -96,7 +99,7 @@ class AdminRoutesMatrixTest {
         IntentRoute entity = new IntentRoute();
         entity.setId(IdUtil.getSnowflakeNextId());
         entity.setName(name);
-        entity.setKeywords("[\"保修\"]");
+        entity.setKeywords("[\"" + uniqueKeyword + "\"]");
         entity.setExamples("[]");
         entity.setTargetKbIds("[" + kbId + "]");
         entity.setEnabled(true);
@@ -134,7 +137,7 @@ class AdminRoutesMatrixTest {
         // 试测：关键词「保修」真跑命中（boot 真库规则含本测播种的一条）
         mockMvc.perform(post("/api/admin/routes/test").header("Authorization", bearer)
                         .contentType("application/json")
-                        .content("{\"query\":\"保修几年\"}"))
+                        .content("{\"query\":\"" + uniqueKeyword + "\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.matched").value("KEYWORD"))
                 .andExpect(jsonPath("$.data.routedKbIds[0]").value(String.valueOf(kbId)));

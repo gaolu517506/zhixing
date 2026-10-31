@@ -191,7 +191,8 @@ class OrgServiceTest {
                 new OrgService.MemberUpsert(3L, "MEMBER"))));
 
         verify(orgMemberMapper).insert(any(OrgMember.class)); // ADD userId=3
-        verify(orgMemberMapper).updateById(any(OrgMember.class)); // ROLE_CHANGE userId=2
+        // ROLE_CHANGE userId=2：复合主键条件更新（验收抓获 updateById 未注册的回归锁）
+        verify(orgMemberMapper).update(any(OrgMember.class), any(com.baomidou.mybatisplus.core.conditions.Wrapper.class));
         verify(orgMemberMapper).delete(any()); // REMOVE userId=4
         ArgumentCaptor<String> action = ArgumentCaptor.forClass(String.class);
         verify(audit).record(any(), any(), action.capture(), any(), any(), any(), any());
