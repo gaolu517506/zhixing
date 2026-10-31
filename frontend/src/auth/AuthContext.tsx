@@ -45,7 +45,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setToken(token);
     setUser(nextUser);
     setLoading(false);
-  }, []);
+    // F10：login/setup 响应不含 orgs（AuthService.UserView 仅 me 填充）——
+    // 异步 refresh 一次补齐组织徽标数据源（验收抓获：徽标登录后缺失）
+    void refresh();
+  }, [refresh]);
 
   const signOut = useCallback(async (): Promise<void> => {
     try {
