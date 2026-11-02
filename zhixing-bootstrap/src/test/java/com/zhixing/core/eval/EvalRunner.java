@@ -86,6 +86,15 @@ class EvalRunner {
                     EvalMetrics.hitAtK(rankedDocIds, expected, 5),
                     EvalMetrics.recallAtK(rankedDocIds, expected, 5),
                     EvalMetrics.mrrAtK(rankedDocIds, expected, 10)));
+            // 未命中明细（Baseline-3 起加）：D6 类判定依赖失败题归类，聚合数不够用
+            if (EvalMetrics.hitAtK(rankedDocIds, expected, 5) < 1) {
+                System.out.printf("[MISS] %s (%s) %s | expected=%s | top5=%s%n",
+                        evalCase.id(), evalCase.difficulty(), evalCase.query(),
+                        evalCase.expectedDocIds(),
+                        rankedDocIds.stream().limit(5)
+                                .map(id -> stripExtension(docIdToCode.getOrDefault(id, "?" + id)))
+                                .toList());
+            }
         }
 
         printReport(results);
